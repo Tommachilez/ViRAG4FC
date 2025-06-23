@@ -47,7 +47,6 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("-t", "--timeout", type=int, default=config.DEFAULT_EXTRACTION_TIMEOUT, help="Timeout for URL text extraction (secs).")
     parser.add_argument("--site-search", type=str, default=None, help="Restrict search to a specific site.")
     parser.add_argument("--batch-size", type=int, default=10, help="N of queries to process between progress updates.")
-    
     # Output Base Paths (used to determine directory and file naming)
     parser.add_argument("--search-output-base", type=str, default=config.DEFAULT_SEARCH_OUTPUT_BASE, help="Base path and prefix for raw search batch files (e.g., 'out/raw' -> out/raw_batches/raw_1.jsonl).")
     parser.add_argument("--extracted-output-base", type=str, default=config.DEFAULT_EXTRACTED_OUTPUT_BASE, help="Base path and prefix for extracted text batch files (e.g., 'out/text' -> out/text_batches/text_1.jsonl).")
@@ -109,7 +108,8 @@ def _process_single_query(
         try:
             results_json = search_google_cse(
                 query=query, api_key=config.API_KEY, cse_id=config.CSE_ID,
-                num_results=args.num_results, start_index=start_index, **api_kwargs
+                exclude_file_type="pdf", num_results=args.num_results,
+                start_index=start_index, **api_kwargs
             )
         except requests.exceptions.RequestException as e:
             logging.error("Stopping processing for query '%s' due to CSE API network error: %s", query_short, e)

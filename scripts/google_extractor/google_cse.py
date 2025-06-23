@@ -19,6 +19,7 @@ def search_google_cse(
     api_key: str,
     cse_id: str,
     num_results: int,
+    exclude_file_type: Optional[str] = None,
     start_index: int = 1,
     **kwargs: Any
 ) -> Optional[Dict[str, Any]]:
@@ -38,6 +39,11 @@ def search_google_cse(
         'key': api_key, 'cx': cse_id, 'q': query,
         'num': num_results, 'start': start_index, **kwargs
     }
+
+    if exclude_file_type:
+        params['q'] = f"{query} -filetype:{exclude_file_type}"
+        logging.info("Modified query with file type exclusion: '%s'", params['q'])
+
     logging.info("Sending request to Google CSE API for query: '%s' (start: %d, num: %d)",
                  query, start_index, num_results)
 
@@ -61,6 +67,7 @@ def search_google_cse(
     except json.JSONDecodeError:
         logging.error("Failed to decode JSON response from CSE API for query: %s", query)
         return None # Indicate bad response format
+   
 
 def process_search_results(results_json: Optional[Dict[str, Any]]) -> List[Dict[str, str]]:
     """
