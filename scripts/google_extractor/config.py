@@ -29,14 +29,8 @@ EXTRACTION_HEADERS = {
 }
 
 # Folder Base Naming Defaults
-DEFAULT_EXTRACTED_OUTPUT_BASE = "results/raw_search"
-DEFAULT_SEARCH_OUTPUT_BASE = "results/extracted_text"
-
-# # --- Domains that Require Playwright for JS Rendering ---
-# PLAYWRIGHT_DOMAINS = {
-#     "baothanhhoa.vn"
-# }
-# logging.info("Playwright will be used for domains: %s", PLAYWRIGHT_DOMAINS)
+DEFAULT_EXTRACTED_OUTPUT_BASE = "data/retrieval_results/raw_search"
+DEFAULT_SEARCH_OUTPUT_BASE = "data/retrieval_results/extracted_text"
 
 # --- Validation (Optional but Recommended) ---
 def validate_config():
