@@ -15,9 +15,37 @@ import trafilatura
 from config import EXTRACTION_HEADERS, DEFAULT_EXTRACTION_TIMEOUT
 
 
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    fitz = None
+    logging.warning("PyMuPDF is not installed. PDF extraction will not be available. Run 'pip install PyMuPDF'.")
+
+
+def _extract_text_from_pdf_content(pdf_content: bytes, url: str) -> Optional[str]:
+    """Extracts text from PDF byte content using PyMuPDF."""
+    if not fitz:
+        logging.error("Cannot process PDF from '%s', PyMuPDF (fitz) is not installed.", url)
+        return None
+    
+    try:
+        # Open PDF from memory stream
+        doc = fitz.open(stream=pdf_content, filetype="pdf")
+        all_text = [page.get_text() for page in doc]
+        
+        full_text = "\n".join(all_text)
+        logging.debug("[PDF] Successfully extracted text from %s", url)
+        return full_text.strip()
+    except Exception as e:
+        logging.error("[PDF] Failed to extract text from %s due to: %s", url, e)
+        return None
+
+
 def extract_main_text_requests(url: str, timeout: int = DEFAULT_EXTRACTION_TIMEOUT) -> Optional[str]:
     """
-    Fetches content from URL, extracts main text using trafilatura.
+    Fetches content from URL, determines type, and extracts main text.
+    Handles HTML using trafilatura and PDF using PyMuPDF.
+    
     Uses lazy % formatting for logging. Returns text string or None on failure.
     """
     logging.debug("[Requests] Attempting text extraction from: %s", url)
@@ -25,6 +53,11 @@ def extract_main_text_requests(url: str, timeout: int = DEFAULT_EXTRACTION_TIMEO
         response = requests.get(url, headers=EXTRACTION_HEADERS, timeout=timeout, allow_redirects=True)
         response.raise_for_status() # Check for HTTP errors (4xx, 5xx)
         content_type = response.headers.get('content-type', '').lower()
+
+        # Route to PDF extractor if content type matches
+        if 'application/pdf' in content_type:
+            logging.info("Detected PDF content type for URL: %s", url)
+            return _extract_text_from_pdf_content(response.content, url)
 
         # Check if content type seems appropriate before parsing
         if 'html' not in content_type and 'xml' not in content_type:

@@ -19,6 +19,7 @@ def search_google_cse(
     api_key: str,
     cse_id: str,
     num_results: int,
+    include_file_type: Optional[str] = None,
     exclude_file_type: Optional[str] = None,
     start_index: int = 1,
     **kwargs: Any
@@ -40,7 +41,10 @@ def search_google_cse(
         'num': num_results, 'start': start_index, **kwargs
     }
 
-    if exclude_file_type:
+    if include_file_type:
+        params['q'] = f"{query} filetype:{include_file_type}"
+        logging.info("Modified query with file type inclusion: '%s'", params['q'])
+    elif exclude_file_type:
         params['q'] = f"{query} -filetype:{exclude_file_type}"
         logging.info("Modified query with file type exclusion: '%s'", params['q'])
 
