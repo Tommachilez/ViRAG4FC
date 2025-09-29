@@ -5,6 +5,5 @@ scripts/tests/
 results/
 data/
 scripts/notebooks/
-scripts/__pycache__/
-scripts/google_extractor/__pycache__/
+__pycache__/
 llama-2-7b-hf/
