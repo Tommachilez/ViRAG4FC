@@ -12,45 +12,6 @@ from typing import List, Optional, Dict, TextIO
 
 import pandas as pd
 
-# def read_queries_from_vifactcheck(column_name: str) -> Optional[List[str]]:
-#     """
-#     Reads a specified column from a CSV or Excel file into a list of unique queries.
-
-#     Args:
-#         file_path: Path to the input dataset file (CSV or Excel).
-#         column_name: Name of the column containing search queries.
-
-#     Returns:
-#         A list of unique, non-empty queries as strings, or None if an error occurs.
-#     """
-#     logging.info("Reading queries from column '%s'.", column_name)
-#     try:
-#         ds = load_dataset("tranthaihoa/vifactcheck")
-#         combined = concatenate_datasets([ds['train'], ds['dev'], ds['test']])
-#         df = combined.to_pandas()
-
-#         if column_name not in df.columns:
-#             logging.error("Query column '%s' not found. Available columns: %s",
-#                           column_name, df.columns.tolist())
-#             return None # Indicate column not found error
-
-#         # Get unique, non-null queries, convert to string just in case
-#         queries = df[column_name].dropna().astype(str).unique().tolist()
-
-#         # Filter out potentially empty strings after conversion
-#         queries = [q for q in queries if q.strip()]
-
-#         logging.info("Read %d unique, non-empty queries from column '%s'.", len(queries), column_name)
-#         if not queries:
-#             logging.warning("No valid, non-empty queries found in the specified column.")
-#             # Return empty list instead of None if no queries found but file/column were ok
-#             return []
-#         return queries
-
-#     except Exception as e:
-#         logging.error("Error reading input: %s", e, exc_info=True)
-#         return None # Indicate other reading error
-
 
 def read_data_from_file(filepath: str, column: str, num_rows: Optional[int] = None) -> Optional[List[str]]:
     """
