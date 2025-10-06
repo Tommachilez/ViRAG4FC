@@ -1,9 +1,7 @@
 ref_resources/
 .env
 .venv/
-scripts/tests/
-results/
+tests/
 data/
-scripts/notebooks/
+notebooks/
 __pycache__/
-llama-2-7b-hf/
