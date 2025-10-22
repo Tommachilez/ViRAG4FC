@@ -1,5 +1,5 @@
 #!.venv/Scripts/python
-# document_retrieval_refactored.py
+# document_retrieval.py
 # -*- coding: utf-8 -*-
 
 """
@@ -8,17 +8,9 @@ Main script to orchestrate document retrieval.
 This script can be run in two modes:
 1.  Single Query Mode (Default): Processes a single search query provided
     via the command line.
-    Example:
-    $ python document_retrieval_refactored.py --query "Benefits of Python" \
-      --search-output-base "output/single/raw_results.jsonl" \
-      --extracted-output-base "output/single/extracted.jsonl"
 
 2.  Batch File Mode: Reads queries from a specified input file, processes
     them in batches, and saves the results into versioned batch files.
-    Example:
-    $ python document_retrieval_refactored.py --input-file "queries.csv" \
-      --query-column "claim" --search-output-base "output/batch/raw" \
-      --extracted-output-base "output/batch/text"
 """
 
 import argparse
@@ -31,10 +23,10 @@ from typing import Dict, List, Generator, Any
 import requests
 from tqdm import tqdm
 
-import config
-from google_cse import search_google_cse, process_search_results
-from content_extractor import extract_main_text_requests
-from data_handler import read_data_from_file, save_jsonl_record
+from utils import config
+from google_extractor.google_cse import search_google_cse, process_search_results
+from google_extractor.content_extractor import extract_main_text_requests
+from google_extractor.data_handler import read_data_from_file, save_jsonl_record
 
 
 # --- Main Application Logic ---
