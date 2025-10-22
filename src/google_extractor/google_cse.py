@@ -12,7 +12,7 @@ from typing import List, Dict, Any, Optional
 import requests
 
 # Import constants from config module
-from config import GOOGLE_API_URL, CSE_API_TIMEOUT
+from utils.config import GOOGLE_API_URL, CSE_API_TIMEOUT
 
 def search_google_cse(
     query: str,

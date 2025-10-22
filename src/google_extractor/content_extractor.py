@@ -3,7 +3,6 @@
 
 """
 Functions for extracting main text content from URLs.
-Includes a requests-based version and a Playwright-based version for dynamic content.
 """
 
 import logging
@@ -12,7 +11,7 @@ from typing import Optional
 import requests
 import trafilatura
 
-from config import EXTRACTION_HEADERS, DEFAULT_EXTRACTION_TIMEOUT
+from utils.config import EXTRACTION_HEADERS, DEFAULT_EXTRACTION_TIMEOUT
 
 
 try:
