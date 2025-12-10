@@ -1,5 +1,5 @@
 #!.venv/Scripts/python
-# document_retrieval_refactored.py
+# document_retrieval.py
 # -*- coding: utf-8 -*-
 
 """
@@ -8,17 +8,9 @@ Main script to orchestrate document retrieval.
 This script can be run in two modes:
 1.  Single Query Mode (Default): Processes a single search query provided
     via the command line.
-    Example:
-    $ python document_retrieval_refactored.py --query "Benefits of Python" \
-      --search-output-base "output/single/raw_results.jsonl" \
-      --extracted-output-base "output/single/extracted.jsonl"
 
 2.  Batch File Mode: Reads queries from a specified input file, processes
     them in batches, and saves the results into versioned batch files.
-    Example:
-    $ python document_retrieval_refactored.py --input-file "queries.csv" \
-      --query-column "claim" --search-output-base "output/batch/raw" \
-      --extracted-output-base "output/batch/text"
 """
 
 import argparse
@@ -31,10 +23,10 @@ from typing import Dict, List, Generator, Any
 import requests
 from tqdm import tqdm
 
-import config
-from google_cse import search_google_cse, process_search_results
-from content_extractor import extract_main_text_requests
-from data_handler import read_data_from_file, save_jsonl_record
+from utils import config
+from google_extractor.google_cse import search_google_cse, process_search_results
+from google_extractor.content_extractor import extract_main_text_requests
+from google_extractor.data_handler import read_data_from_file, save_jsonl_record
 
 
 # --- Main Application Logic ---
@@ -64,9 +56,9 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("-d", "--delay", type=float, default=config.DEFAULT_REQUEST_DELAY, help="Delay between CSE API requests (secs).")
     parser.add_argument("-t", "--timeout", type=int, default=config.DEFAULT_EXTRACTION_TIMEOUT, help="Timeout for URL text extraction (secs).")
     parser.add_argument("--site-search", type=str, default=None, help="Restrict search to a specific site.")
+    parser.add_argument("--file-type", type=str, default=None, help="Restrict search to a specific file type (e.g., pdf, docx).")
     parser.add_argument("--batch-size", type=int, default=10, help="Queries per batch when using --input-file.")
 
-    # --- UPDATED HELP TEXT FOR CLARITY ---
     parser.add_argument("--search-output-base", type=str, default=config.DEFAULT_SEARCH_OUTPUT_BASE, help="Base path for raw search files. Batch mode: a prefix. Single mode: a timestamp is added for uniqueness.")
     parser.add_argument("--extracted-output-base", type=str, default=config.DEFAULT_EXTRACTED_OUTPUT_BASE, help="Base path for extracted text files. Batch mode: a prefix. Single mode: a timestamp is added for uniqueness.")
 
@@ -106,7 +98,15 @@ def _process_single_query(
 
         try:
             api_kwargs = {'siteSearch': args.site_search} if args.site_search else {}
-            results_json = search_google_cse(query=query, api_key=config.API_KEY, cse_id=config.CSE_ID, num_results=args.num_results, start_index=start_index, **api_kwargs)
+            results_json = search_google_cse(
+                query=query,
+                api_key=config.API_KEY,
+                cse_id=config.CSE_ID,
+                num_results=args.num_results,
+                start_index=start_index,
+                include_file_type=args.file_type,
+                **api_kwargs
+            )
         except requests.exceptions.RequestException as e:
             logging.error("Stopping for query '%s' due to CSE API network error: %s", query_short, e); break
 

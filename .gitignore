@@ -1,8 +1,8 @@
 ref_resources/
 .env
 .venv/
-scripts/tests/
-results/
+tests/
 data/
-scripts/notebooks/
-llama-2-7b-hf/
+notebooks/
+__pycache__/
+.pytest_cache/

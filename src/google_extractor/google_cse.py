@@ -12,13 +12,14 @@ from typing import List, Dict, Any, Optional
 import requests
 
 # Import constants from config module
-from config import GOOGLE_API_URL, CSE_API_TIMEOUT
+from utils.config import GOOGLE_API_URL, CSE_API_TIMEOUT
 
 def search_google_cse(
     query: str,
     api_key: str,
     cse_id: str,
     num_results: int,
+    include_file_type: Optional[str] = None,
     exclude_file_type: Optional[str] = None,
     start_index: int = 1,
     **kwargs: Any
@@ -40,7 +41,10 @@ def search_google_cse(
         'num': num_results, 'start': start_index, **kwargs
     }
 
-    if exclude_file_type:
+    if include_file_type:
+        params['q'] = f"{query} filetype:{include_file_type}"
+        logging.info("Modified query with file type inclusion: '%s'", params['q'])
+    elif exclude_file_type:
         params['q'] = f"{query} -filetype:{exclude_file_type}"
         logging.info("Modified query with file type exclusion: '%s'", params['q'])
 
