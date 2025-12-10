@@ -6,23 +6,41 @@ import os
 import google.generativeai as genai
 from tqdm import tqdm
 
-def build_prompt(context: str, evidence: str) -> str:
+def build_prompt(context: str, evidence: str, claim: str) -> str:
     """Constructs the exact prompt required for the task."""
     return f"""
+User Claim (The statement being verified):
+\"\"\"
+{claim}
+\"\"\"
+
 Input Context (Passage):
 \"\"\"
 {context}
 \"\"\"
 
-Core Evidence (Focus Area):
+Core Evidence (The specific sentences supporting/refuting the claim):
 \"\"\"
 {evidence}
 \"\"\"
 
-Task: Generate exactly 3 distinct Vietnamese search queries that would lead a user to this passage. Each query must correspond to a specific category: 
-1. Category "KEYWORD" (Tìm kiếm từ khóa): - Simulate a user typing into Google. Use short, telegraphic keywords. - Focus on the main entities (names, dates, locations). - NO grammar, NO question words (e.g., "là gì", "như thế nào").
-2. Category "NATURAL" (Câu hỏi tự nhiên): - Simulate a user asking a voice assistant or chatbot. - Must be a complete grammatical sentence ending with a question mark. - Focus on the "Intent" of the passage (What problem does this text solve?).
-3. Category "SEMANTIC" (Biến thể Hán-Việt/Đồng nghĩa): - Simulate a user using different vocabulary than the text. - CRITICAL: You must swap at least one common word in the text with its Sino-Vietnamese equivalent (Từ Hán-Việt) or a synonym (e.g., change "đất ở" -> "thổ cư", "người đứng đầu" -> "thủ trưởng", "sửa đổi" -> "tu chính"). - This tests the retriever's ability to handle lexical mismatch.
+Task: Generate exactly 3 distinct Vietnamese search queries. 
+CRITICAL INSTRUCTION: The queries must bridge the gap between the "User Claim" and the "Input Context". 
+- Users will likely search using entities found in the "Claim" (e.g., names, dates). 
+- However, the query must be answerable by the "Input Context". 
+
+Categories: 
+1. Category "KEYWORD" (Tìm kiếm từ khóa): 
+- Simulate a user typing into Google. Use short, telegraphic keywords. 
+- EXTRACT entities from the "Claim" (Who/What/When/Where) and combine them with terms from the "Context".
+- NO grammar, NO question words (e.g., "là gì", "như thế nào").
+2. Category "NATURAL" (Câu hỏi tự nhiên): 
+- Simulate a user asking a voice assistant or chatbot. 
+- Must be a complete grammatical sentence ending with a question mark. 
+- The question should ask about the veracity of the "Claim" based on the "Context".
+3. Category "SEMANTIC" (Biến thể Hán-Việt/Đồng nghĩa): 
+- Simulate a user using different vocabulary than the text. 
+- CRITICAL: Swap words from the "Claim" OR "Context" with Sino-Vietnamese (Hán-Việt) equivalents or synonyms (e.g., change "đất ở" -> "thổ cư", "người đứng đầu" -> "thủ trưởng", "sửa đổi" -> "tu chính").
 
 CRITICAL: The queries must target the information found in the "Core Evidence", but the queries will be used to retrieve the full "Input Context".
 
@@ -76,9 +94,10 @@ def process_csv(args):
             # We accept either 'document' or 'context' for flexibility
             headers = reader.fieldnames
             context_col = 'document' if 'document' in headers else 'context'
+            claim_col = 'query' if 'query' in headers else 'claim'
 
-            if context_col not in headers or 'evidence' not in headers or 'id' not in headers:
-                print(f"Error: CSV must contain columns: 'id', 'evidence', and '{context_col}'")
+            if context_col not in headers or 'evidence' not in headers or 'id' not in headers or claim_col not in headers:
+                print(f"Error: CSV must contain columns: 'id', 'evidence', '{claim_col}', and '{context_col}'")
                 return
 
             # Initialize tqdm progress bar
@@ -92,12 +111,13 @@ def process_csv(args):
                 row_id = row.get('id')
                 context = row.get(context_col, '')
                 evidence = row.get('evidence', '')
+                claim = row.get(claim_col, '')
 
                 # Skip invalid rows
                 if not context or not evidence:
                     continue
                 
-                prompt = build_prompt(context, evidence)
+                prompt = build_prompt(context, evidence, claim)
 
                 try:
                     response = model.generate_content(prompt)
