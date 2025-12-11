@@ -8,16 +8,16 @@ Run the script from your terminal using the command line with the following argu
 
 |Argument|Description|Required?|Batch Mode Only?|Default|
 |--------|-----------|---------|----------------|--------|
-|"-q, --query"|A single search query to process. Activates Single Query Mode.|Mutually Exclusive|No|N/A|
-|"-i, --input-file"|Input CSV/TSV file containing queries. Activates Batch File Mode.|Mutually Exclusive|No|N/A|
+|-q, --query|A single search query to process.</br>Activates Single Query Mode.|Mutually Exclusive|No|N/A|
+|-i, --input-file|Input CSV/TSV file containing queries.</br>Activates Batch File Mode.|Mutually Exclusive|No|N/A|
 |--query-column|Column name in the dataset containing the search queries.|Required for Batch Mode|Yes|N/A|
 |--num-queries|Number of queries from the input file to process.|No|Yes|All|
-|"-p, --pages"|Number of Google Search result pages to fetch for each query.|No|No|1|
-|"-n, --num-results"|Number of results to fetch per page (max 10).|No|No|10|
-|"-d, --delay"|Seconds to wait between CSE API calls for different queries.|No|No|1.0|
-|"-t, --timeout"|Seconds to wait for a webpage to respond during text extraction.|No|No|15|
-|--site-search|"Restrict search to a specific domain (e.g., nytimes.com)."|No|No|N/A|
-|--file-type|"Restrict search to a specific file type (e.g., pdf, docx)."|No|No|N/A|
+|-p, --pages|Number of Google Search result pages to fetch for each query.|No|No|1|
+|-n, --num-results|Number of results to fetch per page (max 10).|No|No|10|
+|-d, --delay|Seconds to wait between CSE API calls for different queries.|No|No|1.0|
+|-t, --timeout|Seconds to wait for a webpage to respond during text extraction.|No|No|15|
+|--site-search|Restrict search to a specific domain (e.g., nytimes.com).|No|No|N/A|
+|--file-type|Restrict search to a specific file type (e.g., pdf, docx).|No|No|N/A|
 |--batch-size|Number of queries to process before saving a batch of results.|No|Yes|10|
 |--search-output-base|Base path/prefix for raw search result files.|No|No|output/raw_search_batches/raw|
 |--extracted-output-base|Base path/prefix for extracted text files.|No|No|output/extracted_text_batches/text|
@@ -29,7 +29,11 @@ Run the script from your terminal using the command line with the following argu
 Processes queries from a file (`queries.csv`), using the column named `claim`. It fetches the top 5 results (`-n 5`) from the first page (`-p 1`) for each query and processes 50 queries at a time (`--batch-size 50`).
 
 ```bash
-python document_retrieval.py --input-file "queries.csv" --query-column "claim" -n 5 --batch-size 50
+python document_retrieval.py \
+  --input-file "queries.csv" \
+  --query-column "claim" \
+  -n 5 \
+  --batch-size 50
 ```
 
 ### 2. Single Query Mode
@@ -37,7 +41,12 @@ python document_retrieval.py --input-file "queries.csv" --query-column "claim" -
 Processes a single query directly from the command line, fetches the top 10 results from the first 2 pages (`-p 2`), and restricts the search to a specific site. The output files will have a timestamp for uniqueness.
 
 ```bash
-python document_retrieval.py -q "Benefits of Python" -p 2 --site-search "realpython.com" --search-output-base "output/single/raw" --extracted-output-base "output/single/text"
+python document_retrieval.py \
+  -q "Benefits of Python" \
+  -p 2 \
+  --site-search "realpython.com" \
+  --search-output-base "output/single/raw" \
+  --extracted-output-base "output/single/text"
 ```
 
 ## Output Format
@@ -55,7 +64,14 @@ These files contain the unprocessed results returned directly by the Google CSE 
 - File Naming (Batch Mode): `raw_1.jsonl`, `raw_2.jsonl`, etc.
 
 ```json
-{"title": "Example News Article Title", "link": "https://example.com/news/article", "snippet": "A brief snippet describing the content of the linked page...", "query": "The original search query", "search_page": 1, "approx_rank": 1}
+{
+    "title": "Example News Article Title",
+    "link": "https://example.com/news/article",
+    "snippet": "A brief snippet describing the content of the linked page...",
+    "query": "The original search query",
+    "search_page": 1,
+    "approx_rank": 1
+}
 ```
 
 ### Extracted Text Results
@@ -69,3 +85,14 @@ These files contain the key information and the main text content extracted from
 - File Naming (Batch Mode): `text_1.jsonl`, `text_2.jsonl`, etc.
 
 If text extraction fails for a URL, the `extracted_text` field will be `null`.
+
+```json
+{
+    "query": "The original search query",
+    "search_page": 1,
+    "approx_rank": 1,
+    "url": "https://example.com/news/article",
+    "title": "Example News Article Title",
+    "extracted_text": "This is the full main text content extracted from the webpage, with navigation, ads, and footers removed..."
+}
+```
