@@ -9,25 +9,25 @@ from tqdm import tqdm
 def build_prompt(context: str, evidence: str, claim: str) -> str:
     """Constructs the exact prompt required for the task."""
     return f"""
-User Claim (The statement being verified):
+Claim:
 \"\"\"
 {claim}
 \"\"\"
 
-Input Context (Passage):
+Context:
 \"\"\"
 {context}
 \"\"\"
 
-Core Evidence (The specific sentences supporting/refuting the claim):
+Evidence:
 \"\"\"
 {evidence}
 \"\"\"
 
 Task: Generate exactly 3 distinct Vietnamese search queries. 
-CRITICAL INSTRUCTION: The queries must bridge the gap between the "User Claim" and the "Input Context". 
+CRITICAL INSTRUCTION: The queries must bridge the gap between the "Claim" and the "Context". 
 - Users will likely search using entities found in the "Claim" (e.g., names, dates). 
-- However, the query must be answerable by the "Input Context". 
+- However, the query must be answerable by the "Context".
 
 Categories: 
 1. Category "KEYWORD" (Tìm kiếm từ khóa): 
@@ -35,16 +35,16 @@ Categories:
 - EXTRACT entities from the "Claim" (Who/What/When/Where) and combine them with terms from the "Context".
 - NO grammar, NO question words (e.g., "là gì", "như thế nào").
 2. Category "NATURAL" (Câu hỏi tự nhiên): 
-- Simulate a user asking a voice assistant or chatbot. 
-- Must be a complete grammatical sentence ending with a question mark. 
+- Simulate a user asking a voice assistant or chatbot.
+- Must be a complete grammatical sentence ending with a question mark.
 - PREFERRED: Use "Wh-questions" (Ai, Cái gì, Ở đâu, Khi nào, Tại sao) to seek specific facts from the Context.
 - AVOID: Simple Yes/No questions (e.g., avoid "Có phải...", "Đúng không") unless they significantly paraphrase the claim.
 - The goal is to ask for the EVIDENCE that supports/refutes the claim based on the "Context".
 3. Category "SEMANTIC" (Biến thể Hán-Việt/Đồng nghĩa): 
 - Simulate a user using different vocabulary than the text. 
-- CRITICAL: Swap words from the "Claim" OR "Context" with Sino-Vietnamese (Hán-Việt) equivalents or synonyms (e.g., change "đất ở" -> "thổ cư", "người đứng đầu" -> "thủ trưởng", "sửa đổi" -> "tu chính").
+- CRITICAL: Swap words from the "Claim" OR "Context" with Sino-Vietnamese (Hán-Việt) equivalents or synonyms (e.g., change "đất ở" -> "thổ cư", "sửa đổi" -> "tu chính").
 
-CRITICAL: The queries must target the information found in the "Core Evidence", but the queries will be used to retrieve the full "Input Context".
+CRITICAL: The queries must target the information found in the "Evidence", but the queries will be used to retrieve the full "Context".
 
 Constraints:
 - All output must be in valid JSON format. 
@@ -186,7 +186,7 @@ def process_csv(args):
                     pbar.update(1)
 
                     # Rate Limit Sleep
-                    time.sleep(1)
+                    time.sleep(4)
 
                 except Exception as e:
                     pbar.write(f"Error processing ID {row_id}: {e}")
