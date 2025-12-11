@@ -167,6 +167,7 @@ def parse_arguments():
     parser.add_argument("--csv", required=True, help="Path to input CSV (id, document)")
     parser.add_argument("--jsonl", required=True, help="Path to input JSONL (generated queries)")
     parser.add_argument("--stopwords", required=True, help="Path to stopwords TXT")
+    parser.add_argument("--output_dir", required=True, help="Directory to store output JSONL files")
     parser.add_argument("--threshold", type=float, default=0.5, help="Overlap threshold (0.0-1.0)")
     parser.add_argument("--quota", type=int, default=None, help="Max number of documents to process. Default: Process all.")
 
@@ -180,11 +181,15 @@ def main():
     lexical_filter = LexicalFilter(processor, args.stopwords)
     documents = load_documents(args.csv)
 
-    # 2. Prepare Output
+    # 2. Prepare Output Directory
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True) # Create folder if not exists
+    print(f"Output directory set to: {out_dir.resolve()}")
+
     files = {
-        "keyword": open("keyword.jsonl", "w", encoding="utf-8"),
-        "natural": open("natural.jsonl", "w", encoding="utf-8"),
-        "semantic": open("semantic.jsonl", "w", encoding="utf-8")
+        "keyword": open(out_dir / "keyword.jsonl", "w", encoding="utf-8"),
+        "natural": open(out_dir / "natural.jsonl", "w", encoding="utf-8"),
+        "semantic": open(out_dir / "semantic.jsonl", "w", encoding="utf-8")
     }
 
     doc_token_cache = {}
