@@ -251,7 +251,7 @@ def main():
 
                 for q in queries:
                     q_type = q.get('type', '').lower()
-                    q_text = q.get('text', '')
+                    q_text = q.get('query', '')
 
                     if not q_text: continue
 
