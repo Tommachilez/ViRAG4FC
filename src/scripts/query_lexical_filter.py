@@ -211,40 +211,49 @@ def main():
 
     # 4. Process Loop
     count_processed = 0
+    debug_printed = False # Flag to print debug info only once
+
     try:
         with open(args.jsonl, 'r', encoding='utf-8') as f:
-            # We use total=total_to_process for the progress bar
             pbar = tqdm(total=total_to_process, desc="Filtering", unit="docs")
 
             for line in f:
-                # Stop if quota reached
-                if args.quota is not None and count_processed >= args.quota:
-                    break
+                if args.quota is not None and count_processed >= args.quota: break
 
                 try:
                     entry = json.loads(line)
                 except json.JSONDecodeError:
                     continue
 
-                doc_id = entry.get('id')
+                # FORCE ID TO STRING
+                doc_id = str(entry.get('id')).strip()
                 queries = entry.get('generated_queries', [])
 
+                # --- DEBUG BLOCK START ---
+                if not debug_printed:
+                    print(f"\n[DEBUG] First Entry ID in JSON: '{doc_id}'")
+                    if doc_id in documents:
+                        print(f"[DEBUG] ID '{doc_id}' FOUND in CSV documents.")
+                    else:
+                        print(f"[DEBUG] ID '{doc_id}' NOT FOUND in CSV. (First 5 keys in CSV: {list(documents.keys())[:5]})")
+                    print(f"[DEBUG] Queries structure: {json.dumps(queries, ensure_ascii=False)[:200]}...")
+                    debug_printed = True
+                # --- DEBUG BLOCK END ---
+
                 if doc_id not in documents:
+                    # Skip if doc not found
                     continue
 
-                # Lazy load document tokens
                 if doc_id not in doc_token_cache:
                     doc_text = documents[doc_id]
                     doc_token_cache[doc_id] = processor.process_query(doc_text)
-
                 doc_tokens = doc_token_cache[doc_id]
 
                 for q in queries:
                     q_type = q.get('type', '').lower()
                     q_text = q.get('text', '')
 
-                    if not q_text:
-                        continue
+                    if not q_text: continue
 
                     if 'semantic' in q_type:
                         json.dump({"id": doc_id, "query": q}, files["semantic"], ensure_ascii=False)
@@ -254,15 +263,17 @@ def main():
                         q_tokens = processor.process_query(q_text)
                         overlap = lexical_filter.calculate_overlap(q_tokens, doc_tokens)
 
+                        # DEBUG OVERLAP
+                        if count_processed < 5:
+                            print(f"[DEBUG] Type: {q_type} | Overlap: {overlap:.2f} | Threshold: {args.threshold}")
+
                         if overlap >= args.threshold:
                             target_file = files["keyword"] if 'keyword' in q_type else files["natural"]
                             json.dump({"id": doc_id, "query": q, "score": round(overlap, 4)}, target_file, ensure_ascii=False)
                             target_file.write("\n")
 
-                # Update progress
                 count_processed += 1
                 pbar.update(1)
-
             pbar.close()
 
     except Exception as e:
@@ -270,7 +281,7 @@ def main():
     finally:
         for f in files.values():
             f.close()
-        print(f"\nDone. Processed {count_processed} documents.")
+        print(f"\nDone. Results saved to {out_dir}")
 
 if __name__ == "__main__":
     main()
