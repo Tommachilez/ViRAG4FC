@@ -47,44 +47,6 @@ def extract_keywords_in_batches(data, batch_size=5):
     )
 
     results = {}
-
-    # # Process the data in batches with a progress bar
-    # for i in tqdm(range(0, len(data), batch_size), desc="Processing Batches"):
-    #     batch = data[i:i + batch_size]
-    #     contents_to_send = []
-    #     key_ids_in_batch = []
-
-    #     for key_id, context in batch:
-    #         full_prompt = base_prompt + context
-    #         contents_to_send.append(full_prompt)
-    #         key_ids_in_batch.append(key_id)
-
-    #     try:
-    #         # Make a single API call for the entire batch
-    #         response = client.models.generate_content(
-    #             model="gemini-2.5-flash",
-    #             contents=contents_to_send,
-    #             # config=types.GenerateContentConfig(
-    #             #     thinking_config=types.ThinkingConfig(thinking_budget=0) # Disables thinking
-    #             # ),
-    #         )
-
-    #         # Process the response for each item in the batch
-    #         for key_id, candidate in zip(key_ids_in_batch, response.candidates):
-    #             if candidate.content and candidate.content.parts:
-    #                 keywords = candidate.content.parts[0].text.strip()
-    #                 results[key_id] = keywords
-    #                 print(f"\n--- Keywords for {key_id} ---\n{keywords}")
-    #             else:
-    #                 results[key_id] = "No keywords found."
-    #                 print(f"\n--- No keywords found for {key_id} ---")
-
-    #     except Exception as e:
-    #         print(f"\nAn error occurred while processing a batch: {e}")
-    #         for key_id in key_ids_in_batch:
-    #             results[key_id] = f"Error processing request: {e}"
-
-    # return results
     
     # Process each item with a progress bar
     for key_id, context in tqdm(data, desc="Processing Contexts"):
