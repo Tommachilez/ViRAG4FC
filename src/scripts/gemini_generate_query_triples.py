@@ -110,10 +110,10 @@ def process_csv(args):
 
     # 2. Calculate Totals for Progress Bar
     total_csv_rows = count_csv_rows(args.input)
-    
+
     # Rows remaining to be done in the file
     remaining_rows = total_csv_rows - len(existing_ids)
-    
+
     # Calculate how many we will actually process this run (limited by quota)
     if args.quota:
         rows_to_process_this_run = min(args.quota, remaining_rows)
@@ -185,12 +185,20 @@ def process_csv(args):
                     processed_count += 1
                     pbar.update(1)
 
-                    # Rate Limit Sleep
-                    time.sleep(4)
+                    # Rate Limit Sleep (Dynamic based on context length roughly)
+                    sleep_time = 4 if len(context) > 2000 else 2
+                    time.sleep(sleep_time)
 
                 except Exception as e:
-                    pbar.write(f"Error processing ID {row_id}: {e}")
-                    # We do NOT increment processed_count here so we retry it next time script runs
+                    error_str = str(e)
+                    # Check for Quota Exceeded Error
+                    if "429" in error_str or "Resource has been exhausted" in error_str:
+                        pbar.write(f"\n[STOPPING] Quota exceeded at ID {row_id}. Saving progress and exiting.")
+                        pbar.write(f"Error message: {error_str}")
+                        break  # This stops the loop gracefully
+                    else:
+                        pbar.write(f"Error processing ID {row_id}: {e}")
+                        # We do NOT increment processed_count here so we retry it next time script runs
 
             pbar.close()
 
