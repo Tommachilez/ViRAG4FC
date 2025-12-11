@@ -37,7 +37,9 @@ Categories:
 2. Category "NATURAL" (Câu hỏi tự nhiên): 
 - Simulate a user asking a voice assistant or chatbot. 
 - Must be a complete grammatical sentence ending with a question mark. 
-- The question should ask about the veracity of the "Claim" based on the "Context".
+- PREFERRED: Use "Wh-questions" (Ai, Cái gì, Ở đâu, Khi nào, Tại sao) to seek specific facts from the Context.
+- AVOID: Simple Yes/No questions (e.g., avoid "Có phải...", "Đúng không") unless they significantly paraphrase the claim.
+- The goal is to ask for the EVIDENCE that supports/refutes the claim based on the "Context".
 3. Category "SEMANTIC" (Biến thể Hán-Việt/Đồng nghĩa): 
 - Simulate a user using different vocabulary than the text. 
 - CRITICAL: Swap words from the "Claim" OR "Context" with Sino-Vietnamese (Hán-Việt) equivalents or synonyms (e.g., change "đất ở" -> "thổ cư", "người đứng đầu" -> "thủ trưởng", "sửa đổi" -> "tu chính").
