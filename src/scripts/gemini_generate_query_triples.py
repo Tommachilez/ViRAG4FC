@@ -24,17 +24,11 @@ Evidence:
 {evidence}
 \"\"\"
 
-Task: Generate exactly 3 distinct Vietnamese search queries. 
-CRITICAL INSTRUCTION: The queries must bridge the gap between the "Claim" and the "Context". 
-- Users will likely search using entities found in the "Claim" (e.g., names, dates). 
-- However, the query must be answerable by the "Context".
+Task: Generate 3 Vietnamese search queries bridging the "Claim" entities and "Context" vocabulary. Queries must target the "Evidence" but retrieve the full "Context". Users will likely search using entities found in the "Claim" (e.g., names, dates).
 
 Categories: 
-1. Category "KEYWORD" (Tìm kiếm từ khóa): 
-- Simulate a user typing into Google. Use short, telegraphic keywords. 
-- EXTRACT entities from the "Claim" (Who/What/When/Where) and combine them with terms from the "Context".
-- NO grammar, NO question words (e.g., "là gì", "như thế nào").
-2. Category "NATURAL" (Câu hỏi tự nhiên): 
+1. "KEYWORD" (Tìm kiếm từ khóa): Use short, telegraphic keywords. EXTRACT entities from the "Claim" (Who/What/When/Where) combined with "Context" terms. NO grammar, NO question words (e.g., "là gì", "như thế nào").
+2. "NATURAL" (Câu hỏi tự nhiên): 
 - Simulate a user asking a voice assistant or chatbot.
 - Must be a complete grammatical sentence ending with a question mark.
 - PREFERRED: Use "Wh-questions" (Ai, Cái gì, Ở đâu, Khi nào, Tại sao) to seek specific facts from the Context.
@@ -44,15 +38,13 @@ Categories:
 - Simulate a user using different vocabulary than the text. 
 - CRITICAL: Swap words from the "Claim" OR "Context" with Sino-Vietnamese (Hán-Việt) equivalents or synonyms (e.g., change "đất ở" -> "thổ cư", "sửa đổi" -> "tu chính").
 
-CRITICAL: The queries must target the information found in the "Evidence", but the queries will be used to retrieve the full "Context".
-
 Constraints:
 - All output must be in valid JSON format. 
 - Queries must be strictly in Vietnamese. 
 - Do not hallucinate information not present in the text. 
 - If the text is too short or meaningless to generate queries, return an empty JSON list "[]".
 
-Output JSON Format: [ {{ "query": "...", "type": "KEYWORD" }}, {{ "query": "...", "type": "NATURAL" }}, {{ "query": "...", "type": "SEMANTIC", "reasoning": "Briefly explain which word you swapped (e.g., swapped 'vợ chồng' with 'phu thê')" }} ]
+Output JSON: [ {{ "query": "...", "type": "KEYWORD" }}, {{ "query": "...", "type": "NATURAL" }}, {{ "query": "...", "type": "SEMANTIC", "reasoning": "Briefly explain which word you swapped (e.g., swapped 'vợ chồng' with 'phu thê')" }} ]
 """
 
 def count_csv_rows(filepath):
