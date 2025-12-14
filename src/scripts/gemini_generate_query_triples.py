@@ -29,11 +29,9 @@ Task: Generate 3 Vietnamese search queries bridging the "Claim" entities and "Co
 Categories: 
 1. "KEYWORD" (Tìm kiếm từ khóa): Use short, telegraphic keywords. EXTRACT entities from the "Claim" (Who/What/When/Where) combined with "Context" terms. NO grammar, NO question words (e.g., "là gì", "như thế nào").
 2. "NATURAL" (Câu hỏi tự nhiên): 
-- Simulate a user asking a voice assistant or chatbot.
-- Must be a complete grammatical sentence ending with a question mark.
-- PREFERRED: Use "Wh-questions" (Ai, Cái gì, Ở đâu, Khi nào, Tại sao) to seek specific facts from the Context.
+- Simulate a user asking a voice assistant or chatbot. Must be a complete grammatical sentence ending with a question mark.
+- PREFERRED: Use "Wh-questions" (Ai, Cái gì, Ở đâu, Khi nào, Tại sao) to seek specific facts from the Context. The goal is to ask for the EVIDENCE that supports/refutes the claim based on the "Context".
 - AVOID: Simple Yes/No questions (e.g., avoid "Có phải...", "Đúng không") unless they significantly paraphrase the claim.
-- The goal is to ask for the EVIDENCE that supports/refutes the claim based on the "Context".
 3. Category "SEMANTIC" (Biến thể Hán-Việt/Đồng nghĩa): 
 - Simulate a user using different vocabulary than the text. 
 - CRITICAL: Swap words from the "Claim" OR "Context" with Sino-Vietnamese (Hán-Việt) equivalents or synonyms (e.g., change "đất ở" -> "thổ cư", "sửa đổi" -> "tu chính").
@@ -89,11 +87,11 @@ def process_csv(args):
 
     # 1. Logic to handle Resuming
     existing_ids = set()
-    
+
     # If appending, load existing work to skip
     if args.append and os.path.exists(args.output):
         existing_ids = get_existing_ids(args.output)
-        print(f"Found {len(existing_ids)} items already processed. They will be skipped.")
+        print(f"Found {len(existing_ids)} items already processed.")
         write_mode = 'a'
     else:
         # If not appending, we overwrite, so we start fresh
@@ -101,10 +99,11 @@ def process_csv(args):
         write_mode = 'w'
 
     # 2. Calculate Totals for Progress Bar
+    existing_count = len(existing_ids)
     total_csv_rows = count_csv_rows(args.input)
 
     # Rows remaining to be done in the file
-    remaining_rows = total_csv_rows - len(existing_ids)
+    remaining_rows = total_csv_rows - existing_count
 
     # Calculate how many we will actually process this run (limited by quota)
     if args.quota:
@@ -115,6 +114,10 @@ def process_csv(args):
     if rows_to_process_this_run <= 0:
         print("No new rows to process! (Quota reached or file complete)")
         return
+
+    pbar_total = existing_count + rows_to_process_this_run
+
+    print(f"Resuming... Starting at {existing_count}. Goal: {pbar_total}.")
 
     processed_count = 0
 
@@ -135,7 +138,7 @@ def process_csv(args):
                 return
 
             # Initialize tqdm
-            pbar = tqdm(total=rows_to_process_this_run, desc="Generating Queries", unit="row")
+            pbar = tqdm(total=pbar_total, initial=existing_count, desc="Generating Queries", unit="row")
 
             for row in reader:
                 # Quota Check (Stop if we have processed enough NEW items)
@@ -155,7 +158,7 @@ def process_csv(args):
 
                 if not context or not evidence:
                     continue
-                
+
                 # Build Prompt
                 prompt = build_prompt(context, evidence, claim)
 
