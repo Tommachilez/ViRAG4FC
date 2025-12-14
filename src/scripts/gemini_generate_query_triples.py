@@ -178,7 +178,7 @@ def process_csv(args):
                     pbar.update(1)
 
                     # Rate Limit Sleep (Dynamic based on context length roughly)
-                    sleep_time = 10 if len(context) > 1000 else 2
+                    sleep_time = 12 if len(context) > 750 else 2
                     time.sleep(sleep_time)
 
                 except Exception as e:
