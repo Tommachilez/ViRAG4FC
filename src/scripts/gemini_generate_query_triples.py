@@ -85,40 +85,24 @@ def process_csv(args):
     print(f"Reading from: {args.input}")
     print(f"Writing to: {args.output}")
 
-    # 1. Logic to handle Resuming
+    # Logic to handle Resuming
     existing_ids = set()
-
-    # If appending, load existing work to skip
+    write_mode = 'w'
     if args.append and os.path.exists(args.output):
         existing_ids = get_existing_ids(args.output)
         print(f"Found {len(existing_ids)} items already processed.")
         write_mode = 'a'
-    else:
-        # If not appending, we overwrite, so we start fresh
-        print("Starting fresh (Overwrite mode).")
-        write_mode = 'w'
 
-    # 2. Calculate Totals for Progress Bar
-    existing_count = len(existing_ids)
+    # Calculate Totals
     total_csv_rows = count_csv_rows(args.input)
+    remaining_rows = total_csv_rows - len(existing_ids)
+    rows_to_process = min(args.quota, remaining_rows) if args.quota else remaining_rows
 
-    # Rows remaining to be done in the file
-    remaining_rows = total_csv_rows - existing_count
-
-    # Calculate how many we will actually process this run (limited by quota)
-    if args.quota:
-        rows_to_process_this_run = min(args.quota, remaining_rows)
-    else:
-        rows_to_process_this_run = remaining_rows
-
-    if rows_to_process_this_run <= 0:
-        print("No new rows to process! (Quota reached or file complete)")
+    if rows_to_process <= 0:
+        print("No new rows to process!")
         return
 
-    pbar_total = existing_count + rows_to_process_this_run
-
-    print(f"Resuming... Starting at {existing_count}. Goal: {pbar_total}.")
-
+    pbar = tqdm(total=rows_to_process, desc="Generating Queries", unit="row")
     processed_count = 0
 
     try:
@@ -127,78 +111,59 @@ def process_csv(args):
 
             reader = csv.DictReader(infile)
 
-            # Header mapping
-            headers = reader.fieldnames
-            context_col = 'document' if 'document' in headers else 'context'
-            claim_col = 'query' if 'query' in headers else 'claim'
-
-            # Header Validation
-            if context_col not in headers or 'evidence' not in headers or 'id' not in headers or claim_col not in headers:
-                print(f"Error: CSV must contain columns: 'id', 'evidence', '{claim_col}', and '{context_col}'")
-                return
-
-            # Initialize tqdm
-            pbar = tqdm(total=pbar_total, initial=existing_count, desc="Generating Queries", unit="row")
-
             for row in reader:
-                # Quota Check (Stop if we have processed enough NEW items)
-                if args.quota and processed_count >= args.quota:
-                    break
-                
+                if args.quota and processed_count >= args.quota: break
+
                 row_id = str(row.get('id'))
+                if row_id in existing_ids: continue
 
-                # --- SKIP LOGIC ---
-                # If this ID is already in the output file, skip it
-                if row_id in existing_ids:
-                    continue
-
-                context = row.get(context_col, '')
+                context = row.get('document') or row.get('context', '')
                 evidence = row.get('evidence', '')
-                claim = row.get(claim_col, '')
+                claim = row.get('query') or row.get('claim', '')
 
-                if not context or not evidence:
-                    continue
+                if not context or not evidence: continue
 
-                # Build Prompt
                 prompt = build_prompt(context, evidence, claim)
 
-                try:
-                    # API Call
-                    response = model.generate_content(prompt)
-                    generated_json = json.loads(response.text)
+                # --- NEW RETRY LOGIC STARTS HERE ---
+                max_retries = 5
+                retry_delay = 30 # Start with 30 seconds
 
-                    result_entry = {
-                        "id": row_id,
-                        "generated_queries": generated_json
-                    }
+                for attempt in range(max_retries):
+                    try:
+                        response = model.generate_content(prompt)
+                        generated_json = json.loads(response.text)
 
-                    # Write to File
-                    outfile.write(json.dumps(result_entry, ensure_ascii=False) + "\n")
-                    outfile.flush()
+                        # Success! Write and break the retry loop
+                        result_entry = {"id": row_id, "generated_queries": generated_json}
+                        outfile.write(json.dumps(result_entry, ensure_ascii=False) + "\n")
+                        outfile.flush()
 
-                    # Update Counters
-                    processed_count += 1
-                    pbar.update(1)
+                        processed_count += 1
+                        pbar.update(1)
 
-                    # Rate Limit Sleep (Dynamic based on context length roughly)
-                    sleep_time = 12 if len(context) > 750 else 2
-                    time.sleep(sleep_time)
+                        # Normal sleep
+                        sleep_time = 10 if len(context) > 1000 else 2
+                        time.sleep(sleep_time)
+                        break # Break out of retry loop to move to next row
 
-                except Exception as e:
-                    error_str = str(e)
-                    # Check for Quota Exceeded Error
-                    if "429" in error_str or "Resource has been exhausted" in error_str:
-                        pbar.write(f"\n[STOPPING] Quota exceeded at ID {row_id}. Saving progress and exiting.")
-                        pbar.write(f"Error message: {error_str}")
-                        break  # This stops the loop gracefully
-                    else:
-                        pbar.write(f"Error processing ID {row_id}: {e}")
-                        # We do NOT increment processed_count here so we retry it next time script runs
+                    except Exception as e:
+                        error_str = str(e)
+                        if "429" in error_str or "Resource has been exhausted" in error_str:
+                            # If it's the last attempt, we have to fail
+                            if attempt == max_retries - 1:
+                                pbar.write(f"Failed ID {row_id} after {max_retries} retries. Moving on.")
+                            else:
+                                # Wait and try again (Exponential Backoff)
+                                wait_time = retry_delay * (2 ** attempt) # 30s, 60s, 120s...
+                                pbar.write(f"Hit 429 quota limit. Sleeping {wait_time}s before retry {attempt+1}...")
+                                time.sleep(wait_time)
+                        else:
+                            # If it's a different error (like 400 Bad Request), don't retry
+                            pbar.write(f"Error processing ID {row_id}: {e}")
+                            break
+                # --- NEW RETRY LOGIC ENDS HERE ---
 
-            pbar.close()
-
-    except FileNotFoundError:
-        print(f"Error: File {args.input} not found.")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
 
