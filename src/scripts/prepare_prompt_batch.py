@@ -64,15 +64,14 @@ if __name__ == "__main__":
             # Construct the Batch Request Object
             # This wrapper tells the Batch API what to do for this specific row
             batch_request = {
-                "custom_id": row_id,  # CRITICAL: This lets us match the answer back to the CSV later
-                "method": "generateContent",
-                "body": {
+                "key": row_id,  # CRITICAL: This lets us match the answer back to the CSV later
+                "request": {
                     "contents": [
                         {"role": "user", "parts": [{"text": prompt_text}]}
                     ],
                     "generationConfig": {
                         "temperature": 0.2,
-                        "response_mime_type": "application/json"
+                        "responseMimeType": "application/json"
                     }
                 }
             }
