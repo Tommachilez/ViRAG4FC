@@ -28,12 +28,12 @@ Task: Generate 3 Vietnamese search queries bridging the "Claim" entities and "Co
 
 Categories: 
 1. "KEYWORD" (Tìm kiếm từ khóa): Use short, telegraphic keywords. EXTRACT entities from the "Claim" (Who/What/When/Where) combined with "Context" terms. NO grammar, NO question words (e.g., "là gì", "như thế nào").
-2. "NATURAL" (Câu hỏi tự nhiên): 
+2. "NATURAL" (Câu hỏi tự nhiên):
 - Simulate a user asking a voice assistant or chatbot. Must be a complete grammatical sentence ending with a question mark.
 - PREFERRED: Use "Wh-questions" (Ai, Cái gì, Ở đâu, Khi nào, Tại sao) to seek specific facts from the Context. The goal is to ask for the EVIDENCE that supports/refutes the claim based on the "Context".
 - AVOID: Simple Yes/No questions (e.g., avoid "Có phải...", "Đúng không") unless they significantly paraphrase the claim.
-3. Category "SEMANTIC" (Biến thể Hán-Việt/Đồng nghĩa): 
-- Simulate a user using different vocabulary than the text. 
+3. Category "SEMANTIC" (Biến thể Hán-Việt/Đồng nghĩa):
+- Simulate a user using different vocabulary than the text.
 - CRITICAL: Swap words from the "Claim" OR "Context" with Sino-Vietnamese (Hán-Việt) equivalents or synonyms (e.g., change "đất ở" -> "thổ cư", "sửa đổi" -> "tu chính").
 
 Constraints:
