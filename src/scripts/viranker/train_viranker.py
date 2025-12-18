@@ -107,6 +107,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train ViRanker Model")
     parser.add_argument("--train_file", type=str, default=TRAIN_FILE, help="Path to training data file (JSONL format)")
     parser.add_argument("--output_dir", type=str, default=OUTPUT_DIR, help="Directory to save the trained model")
+    parser.add_argument("--model_name", type=str, default=MODEL_NAME, help="Pretrained model name or path")
     parser.add_argument("--batch_size", type=int, default=BATCH_SIZE, help="Training batch size")
     parser.add_argument("--num_epochs", type=int, default=NUM_EPOCHS, help="Number of training epochs")
     parser.add_argument("--learning_rate", type=float, default=LEARNING_RATE, help="Learning rate for optimizer")
