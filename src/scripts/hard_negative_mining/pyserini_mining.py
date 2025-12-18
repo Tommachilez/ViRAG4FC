@@ -15,7 +15,7 @@ except ImportError:
     print("Error: Pyserini not installed.", file=sys.stderr)
     sys.exit(1)
 
-def load_doc_map(csv_path, id_col, doc_col):
+def load_csv_pos_map(csv_path, id_col, doc_col):
     """Loads raw text to reconstruct the final triples."""
     m = {}
     with open(csv_path, 'r', encoding='utf-8') as f:
@@ -36,7 +36,17 @@ def main():
 
     corpus_path = os.path.join(args.preprocessed_dir, "corpus_pretokenized.jsonl")
     queries_path = os.path.join(args.preprocessed_dir, "queries_pretokenized.jsonl")
+    map_path = os.path.join(args.preprocessed_dir, "dedup_docs_map.json")
     index_dir = os.path.join(args.preprocessed_dir, "pyserini_index")
+
+    print(">>> Loading Deduplicated Document Map...")
+    with open(map_path, 'r', encoding='utf-8') as f:
+        # Maps Hash (Index ID) -> Raw Text
+        hash_to_text = json.load(f)
+
+    print(">>> Loading Original CSV for Positive Doc lookup...")
+    # Maps Row ID (Query Source) -> Raw Text
+    row_id_to_text = load_csv_pos_map(args.original_doc_csv, args.id_col, args.doc_col)
 
     # ---------------------------------------------------------
     # STEP 1: INDEXING (Subprocess)
@@ -45,8 +55,6 @@ def main():
         shutil.rmtree(index_dir)
 
     print(">>> Building Pyserini Index...")
-    # We must point Pyserini to the FOLDER containing the jsonl, not the file itself
-    # So we create a subdir for the corpus file
     temp_corpus_dir = os.path.join(args.preprocessed_dir, "corpus_folder")
     os.makedirs(temp_corpus_dir, exist_ok=True)
     shutil.copy(corpus_path, os.path.join(temp_corpus_dir, "docs.jsonl"))
@@ -57,21 +65,16 @@ def main():
         "--input", temp_corpus_dir,
         "--index", index_dir,
         "--generator", "DefaultLuceneDocumentGenerator",
-        "--threads", "1",
+        "--threads", "2",
         "--storePositions", "--storeDocvectors", "--storeRaw",
-        "--pretokenized"  # CRITICAL FLAG
+        "--pretokenized"
     ]
     subprocess.check_call(cmd)
-
-    # Cleanup corpus folder
     shutil.rmtree(temp_corpus_dir)
 
     # ---------------------------------------------------------
     # STEP 2: SEARCHING
     # ---------------------------------------------------------
-    print(">>> Loading Raw Documents for reconstruction...")
-    doc_map = load_doc_map(args.original_doc_csv, args.id_col, args.doc_col)
-
     print(">>> Initializing Searcher...")
     searcher = LuceneSearcher(index_dir)
     searcher.set_bm25(k1=1.2, b=0.75)
@@ -91,7 +94,8 @@ def main():
             data = json.loads(line)
             pos_id = data['pos_doc_id']
 
-            if pos_id not in doc_map:
+            pos_text_raw = row_id_to_text.get(pos_id)
+            if not pos_text_raw:
                 continue
 
             for q_data in data['queries']:
@@ -103,13 +107,15 @@ def main():
 
                 hard_negatives = []
                 for hit in hits:
-                    if hit.docid == pos_id:
+                    candidate_text = hash_to_text.get(hit.docid)
+
+                    if not candidate_text:
                         continue
 
-                    # Retrieve raw text from our map
-                    raw_neg = doc_map.get(hit.docid)
-                    if raw_neg:
-                        hard_negatives.append(raw_neg)
+                    if candidate_text == pos_text_raw:
+                        continue
+
+                    hard_negatives.append(candidate_text)
 
                     if len(hard_negatives) >= args.top_k:
                         break
@@ -117,7 +123,7 @@ def main():
                 # Write Output: Query(Raw), Pos(Raw), Neg(Raw)
                 out = {
                     "query": raw_query,
-                    "pos": [doc_map[pos_id]],
+                    "pos": [pos_text_raw],
                     "neg": hard_negatives
                 }
                 f_out.write(json.dumps(out, ensure_ascii=False) + "\n")

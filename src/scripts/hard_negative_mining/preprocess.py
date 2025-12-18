@@ -4,6 +4,7 @@ import json
 import string
 import argparse
 import os
+import hashlib
 from typing import Set
 from tqdm import tqdm
 import py_vncorenlp
@@ -20,6 +21,7 @@ STOPWORD_WHITELIST = {
     "ai", "gì", "nào", "đâu", "khi", "mấy", "bao_nhiêu", "thế_nào", "sao",
     "bị", "được", "do", "bởi"
 }
+
 
 class VietnameseProcessor:
     def __init__(self, vncorenlp_path: str, stopwords_path: str):
@@ -70,6 +72,12 @@ class VietnameseProcessor:
         except:
             return ""
 
+
+def get_md5(text: str) -> str:
+    """Generates a consistent hash for deduplication."""
+    return hashlib.md5(text.strip().encode('utf-8')).hexdigest()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--doc_csv", required=True)
@@ -88,25 +96,42 @@ def main():
     # ---------------------------------------------------------
     # PART 1: Process Documents (CSV -> JSONL for Pyserini)
     # ---------------------------------------------------------
-    print(">>> Processing Documents...")
+    print(">>> Processing Documents (Deduplicating)...")
     out_corpus_path = os.path.join(args.output_dir, "corpus_pretokenized.jsonl")
+    out_map_path = os.path.join(args.output_dir, "dedup_docs_map.json")
+
+    # Tracking sets for deduplication
+    seen_hashes = set()
+    doc_hash_to_raw = {}
 
     with open(args.doc_csv, 'r', encoding='utf-8') as f_in, \
          open(out_corpus_path, 'w', encoding='utf-8') as f_out:
 
         reader = csv.DictReader(f_in)
-        for row in tqdm(reader, desc="Docs"):
-            doc_id = row.get(args.id_col)
-            content = row.get(args.doc_col)
+        for row in tqdm(reader, desc="Deduping Docs"):
+            content = row.get(args.doc_col, "").strip()
 
-            if doc_id and content:
-                # Segment content
+            if not content:
+                continue
+
+            doc_hash = get_md5(content)
+            if doc_hash not in seen_hashes:
+                seen_hashes.add(doc_hash)
+
+                # Tokenize
                 seg_text = processor.process(content)
 
-                # Write simple JSON structure for Pyserini
-                # We do NOT need to store raw text here, Pyserini just needs to index 'contents'
-                obj = {"id": doc_id, "contents": seg_text}
+                # Write to Pyserini corpus (ID = Hash)
+                obj = {"id": doc_hash, "contents": seg_text}
                 f_out.write(json.dumps(obj, ensure_ascii=False) + "\n")
+
+                # Store mapping for later retrieval
+                doc_hash_to_raw[doc_hash] = content
+
+    # Save the map so pyserini_mining.py can look up raw text
+    print(f">>> Saving deduplicated document map ({len(doc_hash_to_raw)} unique docs)...")
+    with open(out_map_path, 'w', encoding='utf-8') as f:
+        json.dump(doc_hash_to_raw, f, ensure_ascii=False)
 
     # ---------------------------------------------------------
     # PART 2: Process Queries (JSONL -> JSONL with seg)
