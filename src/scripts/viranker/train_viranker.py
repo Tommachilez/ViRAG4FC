@@ -3,6 +3,7 @@ import logging
 import math
 import numpy as np
 import os
+import argparse
 from torch.utils.data import DataLoader
 from sentence_transformers import CrossEncoder, InputExample
 from sklearn.model_selection import train_test_split
@@ -61,23 +62,23 @@ def prepare_training_samples(raw_data):
             samples.append(InputExample(texts=[query, neg], label=0.0))
     return samples
 
-def train_viranker():
+def train_viranker(args):
     # 1. Load Data
-    train_raw, dev_raw = load_and_split_data(TRAIN_FILE)
+    train_raw, dev_raw = load_and_split_data(args.train_file)
     train_samples = prepare_training_samples(train_raw)
 
     # 2. Initialize Model
-    logging.info(f"Initializing CrossEncoder: {MODEL_NAME}")
-    model = CrossEncoder(MODEL_NAME, num_labels=1, max_length=MAX_SEQ_LENGTH)
+    logging.info(f"Initializing CrossEncoder: {args.model_name}")
+    model = CrossEncoder(args.model_name, num_labels=1, max_length=args.max_seq_length)
 
     # 3. DataLoader
-    train_dataloader = DataLoader(train_samples, shuffle=True, batch_size=BATCH_SIZE)
+    train_dataloader = DataLoader(train_samples, shuffle=True, batch_size=args.batch_size)
 
     # 4. Initialize Evaluator
     evaluator = RankerEvaluator(dev_raw, k_values=[3, 5, 10])
 
     # 5. Training Loop
-    warmup_steps = math.ceil(len(train_dataloader) * NUM_EPOCHS * 0.1)
+    warmup_steps = math.ceil(len(train_dataloader) * args.num_epochs * 0.1)
 
     logging.info("Starting training...")
 
@@ -88,19 +89,27 @@ def train_viranker():
 
     model.fit(
         train_dataloader=train_dataloader,
-        epochs=NUM_EPOCHS,
+        epochs=args.num_epochs,
         warmup_steps=warmup_steps,
-        output_path=OUTPUT_DIR,
-        optimizer_params={'lr': LEARNING_RATE},
+        output_path=args.output_dir,
+        optimizer_params={'lr': args.learning_rate},
         show_progress_bar=True
     )
 
     logging.info("Training finished. Running final evaluation...")
 
     # Run Final Evaluation on the Dev Set
-    evaluator(model, epoch_idx=NUM_EPOCHS)
+    evaluator(model, epoch_idx=args.num_epochs)
 
-    logging.info(f"Model saved to: {OUTPUT_DIR}")
+    logging.info(f"Model saved to: {args.output_dir}")
 
 if __name__ == "__main__":
-    train_viranker()
+    parser = argparse.ArgumentParser(description="Train ViRanker Model")
+    parser.add_argument("--train_file", type=str, default=TRAIN_FILE, help="Path to training data file (JSONL format)")
+    parser.add_argument("--output_dir", type=str, default=OUTPUT_DIR, help="Directory to save the trained model")
+    parser.add_argument("--batch_size", type=int, default=BATCH_SIZE, help="Training batch size")
+    parser.add_argument("--num_epochs", type=int, default=NUM_EPOCHS, help="Number of training epochs")
+    parser.add_argument("--learning_rate", type=float, default=LEARNING_RATE, help="Learning rate for optimizer")
+    parser.add_argument("--max_seq_length", type=int, default=MAX_SEQ_LENGTH, help="Maximum sequence length for the model")
+    parser.add_argument("--dev_split_ratio", type=float, default=DEV_SPLIT_RATIO, help="Proportion of data to use for development/validation")
+    train_viranker(parser.parse_args())
