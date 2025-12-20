@@ -105,7 +105,10 @@ def main():
                 # Search using the SEGMENTED string
                 hits = searcher.search(seg_query, k=args.top_k + 10)
 
-                hard_negatives = []
+                candidates = {}
+                # Add Positive
+                candidates[pos_id] = pos_text_raw
+
                 for hit in hits:
                     candidate_text = hash_to_text.get(hit.docid)
 
@@ -115,17 +118,13 @@ def main():
                     if candidate_text == pos_text_raw:
                         continue
 
-                    hard_negatives.append(candidate_text)
+                    candidates[hit.docid] = candidate_text
 
-                    if len(hard_negatives) >= args.top_k:
+                    if len(candidates) >= args.top_k + 1:  # +1 for positive
                         break
 
-                # Write Output: Query(Raw), Pos(Raw), Neg(Raw)
-                out = {
-                    "query": raw_query,
-                    "pos": [pos_text_raw],
-                    "neg": hard_negatives
-                }
+                # Write Output
+                out = { "query": raw_query, "candidates": candidates }
                 f_out.write(json.dumps(out, ensure_ascii=False) + "\n")
 
     print(f">>> Done. Output at {args.output_jsonl}")
