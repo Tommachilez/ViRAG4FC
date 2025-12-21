@@ -15,21 +15,40 @@ except ImportError:
     print("Error: Pyserini not installed.", file=sys.stderr)
     sys.exit(1)
 
-def load_csv_pos_map(csv_path, id_col, doc_col):
-    """Loads raw text to reconstruct the final triples."""
-    m = {}
+def load_csv_maps(csv_path, id_col, doc_col):
+    """
+    Loads raw text to reconstruct final triples.
+    Returns:
+        id_to_text: Map of Original ID -> Text
+        text_to_id: Map of Text -> Original ID (for reverse lookup)
+    """
+    id_to_text = {}
+    text_to_id = {}
+
+    # Increase field size limit for large CSV fields
+    csv.field_size_limit(sys.maxsize)
+
     with open(csv_path, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
-            m[row[id_col]] = row[doc_col]
-    return m
+            rid = row[id_col]
+            txt = row[doc_col]
+
+            id_to_text[rid] = txt
+
+            # If multiple IDs have the exact same text, this will keep the first one found.
+            # This is acceptable since they are duplicates.
+            if txt not in text_to_id:
+                text_to_id[txt] = rid
+
+    return id_to_text, text_to_id
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--preprocessed_dir", required=True)
     parser.add_argument("--original_doc_csv", required=True)
     parser.add_argument("--output_jsonl", required=True)
-    parser.add_argument("--top_k", type=int, default=10)
+    parser.add_argument("--top_k", type=int, default=50)
     parser.add_argument("--doc_col", default="document")
     parser.add_argument("--id_col", default="id")
     args = parser.parse_args()
@@ -44,9 +63,10 @@ def main():
         # Maps Hash (Index ID) -> Raw Text
         hash_to_text = json.load(f)
 
-    print(">>> Loading Original CSV for Positive Doc lookup...")
-    # Maps Row ID (Query Source) -> Raw Text
-    row_id_to_text = load_csv_pos_map(args.original_doc_csv, args.id_col, args.doc_col)
+    print(">>> Loading Original CSV for ID lookup...")
+    # row_id_to_text: Used to get the query's positive doc text
+    # text_to_row_id: Used to convert retrieved candidates back to original IDs
+    row_id_to_text, text_to_row_id = load_csv_maps(args.original_doc_csv, args.id_col, args.doc_col)
 
     # ---------------------------------------------------------
     # STEP 1: INDEXING (Subprocess)
@@ -106,19 +126,28 @@ def main():
                 hits = searcher.search(seg_query, k=args.top_k + 10)
 
                 candidates = {}
-                # Add Positive
+                # Add Positive (Using Original ID)
                 candidates[pos_id] = pos_text_raw
 
                 for hit in hits:
+                    # hit.docid is the HASH
                     candidate_text = hash_to_text.get(hit.docid)
 
                     if not candidate_text:
                         continue
 
+                    # Filter out exact positive text match (deduplication)
                     if candidate_text == pos_text_raw:
                         continue
 
-                    candidates[hit.docid] = candidate_text
+                    # RETRIEVE ORIGINAL ID
+                    # We use the text to find the original CSV ID
+                    original_doc_id = text_to_row_id.get(candidate_text)
+
+                    # Fallback: if somehow not found (unlikely), use the hash
+                    final_id = original_doc_id if original_doc_id else hit.docid
+
+                    candidates[final_id] = candidate_text
 
                     if len(candidates) >= args.top_k + 1:  # +1 for positive
                         break
