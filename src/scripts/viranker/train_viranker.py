@@ -50,16 +50,53 @@ def load_and_split_data(file_path):
 
     return train_raw, dev_raw
 
-def prepare_training_samples(raw_data):
-    """Convert raw JSON objects into InputExample for SentenceTransformers"""
+def prepare_training_samples(data_file_path):
+    """
+    Reads the mining output where the schema is:
+    {
+      "query": "raw query",
+      "candidates": {
+         "pos_id": "pos_text",
+         "neg_id_1": "neg_text_1",
+         "neg_id_2": "neg_text_2"
+      }
+    }
+    """
     samples = []
-    for data in raw_data:
-        query = data.get("query", "")
-        # Create pairs
-        for pos in data.get("pos", []):
-            samples.append(InputExample(texts=[query, pos], label=1.0))
-        for neg in data.get("neg", []):
-            samples.append(InputExample(texts=[query, neg], label=0.0))
+
+    print(f"Loading training data from {data_file_path}...")
+
+    with open(data_file_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            try:
+                data = json.loads(line)
+                query = data['query']
+                candidates = data['candidates']
+
+                # Convert dict items to a list to access by index
+                # Python 3.7+ preserves insertion order, so the first item 
+                # is the Positive (as inserted by our mining script).
+                cand_items = list(candidates.values())
+
+                if len(cand_items) < 2:
+                    # Need at least 1 pos and 1 neg
+                    continue
+
+                # First item is Positive
+                pos_text = cand_items[0]
+
+                # Remaining items are Negatives
+                neg_texts = cand_items[1:]
+
+                # Create a Triplet (Query, Pos, Neg) for every negative found
+                for neg_text in neg_texts:
+                    samples.append(InputExample(texts=[query, pos_text, neg_text]))
+
+            except Exception as e:
+                print(f"Skipping bad line: {e}")
+                continue
+
+    print(f"Loaded {len(samples)} training triples.")
     return samples
 
 def train_viranker(args):
