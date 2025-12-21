@@ -88,8 +88,9 @@ class VietnameseQueryProcessor:
 # LEXICAL FILTER LOGIC
 # ==========================================
 class LexicalFilter:
-    def __init__(self, processor: VietnameseQueryProcessor, stopwords_path: str):
+    def __init__(self, processor: VietnameseQueryProcessor, stopwords_path: str, use_whitelist: bool = False):
         self.processor = processor
+        self.use_whitelist = use_whitelist
         self.stopwords = self._load_stopwords(stopwords_path)
 
     def _load_stopwords(self, path: str) -> Set[str]:
@@ -111,12 +112,12 @@ class LexicalFilter:
                 token_style = word.replace(' ', '_').replace('-', '_')
 
                 # Check Whitelist
-                if token_style in STOPWORD_WHITELIST:
+                if self.use_whitelist and token_style in STOPWORD_WHITELIST:
                     continue
 
                 final_stopwords.add(token_style)
 
-        print(f"Loaded {len(final_stopwords)} stopwords.")
+        print(f"Loaded {len(final_stopwords)} stopwords (Whitelist enabled: {self.use_whitelist}).")
         return final_stopwords
 
     def calculate_overlap(self, query_tokens: Set[str], doc_tokens: Set[str]) -> float:
@@ -170,6 +171,7 @@ def parse_arguments():
     parser.add_argument("--output_dir", required=True, help="Directory to store output JSONL files")
     parser.add_argument("--threshold", type=float, default=0.5, help="Overlap threshold (0.0-1.0)")
     parser.add_argument("--quota", type=int, default=None, help="Max number of documents to process. Default: Process all.")
+    parser.add_argument("--enable_whitelist", action="store_true", help="If set, prevents specific important stopwords (negations, logic) from being filtered out.")
 
     return parser.parse_args()
 
@@ -178,7 +180,7 @@ def main():
 
     # 1. Initialize Components
     processor = VietnameseQueryProcessor(args.vncorenlp)
-    lexical_filter = LexicalFilter(processor, args.stopwords)
+    lexical_filter = LexicalFilter(processor, args.stopwords, use_whitelist=args.enable_whitelist)
     documents = load_documents(args.csv)
 
     # 2. Prepare Output Directory
@@ -189,7 +191,8 @@ def main():
     files = {
         "keyword": open(out_dir / "keyword.jsonl", "w", encoding="utf-8"),
         "natural": open(out_dir / "natural.jsonl", "w", encoding="utf-8"),
-        "semantic": open(out_dir / "semantic.jsonl", "w", encoding="utf-8")
+        "semantic": open(out_dir / "semantic.jsonl", "w", encoding="utf-8"),
+        "filtered_source": open(out_dir / "filtered_source.jsonl", "w", encoding="utf-8")
     }
 
     doc_token_cache = {}
@@ -249,13 +252,19 @@ def main():
                     doc_token_cache[doc_id] = processor.process_query(doc_text)
                 doc_tokens = doc_token_cache[doc_id]
 
+                # Store valid queries for this specific document to write to filtered_source.jsonl
+                valid_queries_for_this_doc = []
+
                 for q in queries:
                     q_type = q.get('type', '').lower()
                     q_text = q.get('query', '')
+                    is_valid = False # Track if this specific query passed checks
 
                     if not q_text: continue
 
                     if 'semantic' in q_type:
+                        # Semantic queries usually pass without lexical overlap check
+                        is_valid = True
                         json.dump({"id": doc_id, "query": q}, files["semantic"], ensure_ascii=False)
                         files["semantic"].write("\n")
 
@@ -267,10 +276,23 @@ def main():
                         if count_processed < 5:
                             print(f"[DEBUG] Type: {q_type} | Overlap: {overlap:.2f} | Threshold: {args.threshold}")
 
+                        target_file = files["keyword"] if 'keyword' in q_type else files["natural"]
+                        json.dump({"id": doc_id, "query": q, "score": round(overlap, 4)}, target_file, ensure_ascii=False)
+                        target_file.write("\n")
+
                         if overlap >= args.threshold:
-                            target_file = files["keyword"] if 'keyword' in q_type else files["natural"]
-                            json.dump({"id": doc_id, "query": q, "score": round(overlap, 4)}, target_file, ensure_ascii=False)
-                            target_file.write("\n")
+                            is_valid = True
+
+                    if is_valid:
+                        valid_queries_for_this_doc.append(q)
+
+                if valid_queries_for_this_doc:
+                    source_entry = {
+                        "id": doc_id,
+                        "generated_queries": valid_queries_for_this_doc
+                    }
+                    json.dump(source_entry, files["filtered_source"], ensure_ascii=False)
+                    files["filtered_source"].write("\n")
 
                 count_processed += 1
                 pbar.update(1)
