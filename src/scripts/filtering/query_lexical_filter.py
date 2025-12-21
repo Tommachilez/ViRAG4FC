@@ -1,3 +1,4 @@
+import os
 import sys
 import json
 import csv
@@ -37,9 +38,8 @@ class VietnameseQueryProcessor:
     punctuation = set(string.punctuation)
 
     def __init__(self, vncorenlp_path: str):
-        if not vncorenlp_path or not Path(vncorenlp_path).exists():
-            print(f"Error: VnCoreNLP path not found at '{vncorenlp_path}'", file=sys.stderr)
-            sys.exit(1)
+        if not os.path.exists(vncorenlp_path):
+            raise FileNotFoundError(f"VnCoreNLP not found at {vncorenlp_path}")
 
         VietnameseQueryProcessor._vncorenlp_path = vncorenlp_path
         self.get_vncorenlp()  # Initialize
