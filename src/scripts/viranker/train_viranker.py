@@ -80,7 +80,10 @@ def prepare_training_samples(raw_data: list):
 
             # Create a Triplet (Query, Pos, Neg) for every negative found
             for neg_text in neg_texts:
-                samples.append(InputExample(texts=[query, pos_text, neg_text]))
+                # 1. Positive Pair
+                samples.append(InputExample(texts=[query, pos_text], label=1.0))
+                # 2. Negative Pair
+                samples.append(InputExample(texts=[query, neg_text], label=0.0))
 
         except Exception as e:
             print(f"Skipping bad line: {e}")
