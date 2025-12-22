@@ -32,7 +32,6 @@ class ViRankerScorer:
         #     sys.exit(1)
 
         try:
-            # Load from local checkpoint directory
             self.tokenizer = AutoTokenizer.from_pretrained(model_path)
             self.model = AutoModelForSequenceClassification.from_pretrained(model_path)
             self.model.to(self.device)
@@ -67,7 +66,6 @@ class ViRankerScorer:
         Splits long document into overlapping windows, scores each, 
         and returns the MAXIMUM score (MaxP).
         """
-        # Approximate token split (accurate enough for windowing)
         tokens = doc_text.split()
 
         if not tokens:
@@ -78,17 +76,12 @@ class ViRankerScorer:
         else:
             windows = []
             for i in range(0, len(tokens), stride):
-                # Reconstruct string from token slice
                 chunk = " ".join(tokens[i : i + window_size])
                 windows.append(chunk)
-                # Stop if we've reached the end
                 if i + window_size >= len(tokens):
                     break
 
-        # Prepare pairs for batching
         pairs = [[query, w] for w in windows]
-
-        # Score all chunks
         scores = self.score_batch(pairs)
 
         return max(scores) if scores else (-9999.0 if not self.use_sigmoid else 0.0)
@@ -108,6 +101,21 @@ def load_documents(csv_path: str, content_col: str) -> dict:
         sys.exit(1)
     return docs
 
+def count_lines(filepath):
+    """Counts lines in a file for tqdm total."""
+    print(f"Counting lines in {filepath}...")
+    with open(filepath, 'r', encoding='utf-8') as f:
+        return sum(1 for _ in f)
+
+def atomic_save_pickle(data, filepath):
+    """
+    Saves pickle atomically. Writes to .tmp first, then renames.
+    Prevents corruption if script crashes during write.
+    """
+    temp_path = filepath + ".tmp"
+    with gzip.open(temp_path, 'wb') as f:
+        pickle.dump(data, f)
+    os.replace(temp_path, filepath) # Atomic move
 
 def main():
     parser = argparse.ArgumentParser(description="Calculate ViRanker scores for Distillation.")
@@ -116,56 +124,84 @@ def main():
     parser.add_argument("--csv", required=True, help="Path to CSV file containing documents.")
     parser.add_argument("--mining_jsonl", required=True, help="Path to JSONL from pyserini_mining (contains candidates).")
     parser.add_argument("--output_pkl", required=True, help="Path to save the .pkl.gz score file.")
-    parser.add_argument("--model_path", default='namdp-ptit/ViRanker', help="Path to the local ViRanker checkpoint directory (e.g., ./viranker_checkpoint).")
+    parser.add_argument("--model_path", required=True, help="Path to the local ViRanker checkpoint directory.")
 
     # Optional Arguments
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--doc_col", type=str, default="document", help="Column name for document text in CSV")
     parser.add_argument("--use_sigmoid", action="store_true", help="If set, apply sigmoid to squash logits to [0,1].")
+    parser.add_argument("--append", action="store_true", help="Resume processing by loading existing output file.")
+    parser.add_argument("--save_every", type=int, default=100, help="Save checkpoint every N queries.")
 
     args = parser.parse_args()
 
     # 1. Load Resources
-    # Pass the local model path to the Scorer
     scorer = ViRankerScorer(
         model_path=args.model_path,
         batch_size=args.batch_size,
         use_sigmoid=args.use_sigmoid
     )
 
-    # Load raw documents to map IDs from candidates back to text
     documents = load_documents(args.csv, args.doc_col)
 
-    # 2. Data Structures
-    # Structure: { query_id_int: { doc_id_str: score_float } }
+    # 2. Handle Resume/Append Logic
     full_scores = {}
+    already_processed_count = 0
 
-    # 3. Processing Loop
-    print("Starting scoring loop...")
+    if args.append and os.path.exists(args.output_pkl):
+        print(f"Append mode: Loading existing scores from {args.output_pkl}...")
+        try:
+            with gzip.open(args.output_pkl, 'rb') as f:
+                full_scores = pickle.load(f)
+            already_processed_count = len(full_scores)
+            print(f"Found {already_processed_count} existing queries. Resuming...")
+        except Exception as e:
+            print(f"Warning: Could not load existing pickle ({e}). Starting fresh.")
+            full_scores = {}
+            already_processed_count = 0
 
-    # We use a simple counter for Query ID if not present, to match DeeperImpact format
-    query_counter = 0
+    # The current query index (key for the dictionary)
+    query_counter = already_processed_count
+
+    # 3. Setup Progress Bar
+    total_lines = count_lines(args.mining_jsonl)
+
+    print(f"Starting scoring loop. Saving every {args.save_every} queries...")
 
     with open(args.mining_jsonl, 'r', encoding='utf-8') as f:
-        for line in tqdm(f, desc="Scoring Candidates"):
+        # Tqdm tracks file lines
+        pbar = tqdm(total=total_lines, desc="Processing", unit="queries")
+
+        # Track how many VALID queries we have encountered in this run
+        valid_inputs_seen = 0
+
+        for line in f:
             try:
                 entry = json.loads(line)
             except:
-                print("Skipping bad line (not valid JSON).")
+                pbar.update(1)
                 continue
 
             query_text = entry.get('query', '')
-            candidates = entry.get('candidates', {}) # Expecting {doc_id: doc_text} or just {doc_id: ...}
+            candidates = entry.get('candidates', {})
 
-            if not query_text or not candidates:
+            # Validation: Is this line processable?
+            if not query_text or not candidates: 
+                pbar.update(1)
                 continue
 
+            # RESUME LOGIC:
+            # Skip until we reach the point where we left off
+            if valid_inputs_seen < already_processed_count:
+                valid_inputs_seen += 1
+                pbar.update(1)
+                continue
+
+            # --- Actual Processing ---
             q_scores = {}
 
-            # Iterate through candidates for this query
             for doc_id, val in candidates.items():
-                # If mining file has text, use it. If not, look up in 'documents' dict.
-                # Assuming 'val' is the text, or we use 'documents[doc_id]'
+                # Resolve text
                 if isinstance(val, str) and len(val) > 10:
                     text_to_score = val
                 else:
@@ -178,14 +214,23 @@ def main():
                 score = scorer.score_maxp(query_text, text_to_score)
                 q_scores[str(doc_id)] = float(score)
 
+            # Only save if we got scores
             if q_scores:
                 full_scores[query_counter] = q_scores
                 query_counter += 1
+                valid_inputs_seen += 1
 
-    # 4. Save to Pickle
-    print(f"Saving scores for {len(full_scores)} queries to {args.output_pkl}...")
-    with gzip.open(args.output_pkl, 'wb') as f:
-        pickle.dump(full_scores, f)
+                # --- ATOMIC CHECKPOINT SAVE ---
+                if valid_inputs_seen % args.save_every == 0:
+                    atomic_save_pickle(full_scores, args.output_pkl)
+
+            pbar.update(1)
+
+        pbar.close()
+
+    # 4. Final Save
+    print(f"Saving final scores for {len(full_scores)} queries to {args.output_pkl}...")
+    atomic_save_pickle(full_scores, args.output_pkl)
     print("Done.")
 
 if __name__ == "__main__":
