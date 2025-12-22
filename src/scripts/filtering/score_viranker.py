@@ -27,9 +27,9 @@ class ViRankerScorer:
         print(f"Loading ViRanker from checkpoint: {model_path} on {self.device}...")
         print(f"Output Mode: {'Sigmoid (0-1)' if self.use_sigmoid else 'Raw Logits'}")
 
-        if not os.path.exists(model_path):
-            print(f"Error: Model path '{model_path}' does not exist.")
-            sys.exit(1)
+        # if not os.path.exists(model_path):
+        #     print(f"Error: Model path '{model_path}' does not exist.")
+        #     sys.exit(1)
 
         try:
             # Load from local checkpoint directory
