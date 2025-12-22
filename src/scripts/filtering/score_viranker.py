@@ -116,7 +116,7 @@ def main():
     parser.add_argument("--csv", required=True, help="Path to CSV file containing documents.")
     parser.add_argument("--mining_jsonl", required=True, help="Path to JSONL from pyserini_mining (contains candidates).")
     parser.add_argument("--output_pkl", required=True, help="Path to save the .pkl.gz score file.")
-    parser.add_argument("--model_path", required=True, default='namdp-ptit/ViRanker', help="Path to the local ViRanker checkpoint directory (e.g., ./viranker_checkpoint).")
+    parser.add_argument("--model_path", default='namdp-ptit/ViRanker', help="Path to the local ViRanker checkpoint directory (e.g., ./viranker_checkpoint).")
 
     # Optional Arguments
     parser.add_argument("--batch_size", type=int, default=16)
