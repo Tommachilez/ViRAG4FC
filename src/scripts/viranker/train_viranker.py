@@ -97,9 +97,18 @@ def train_viranker(args):
     train_raw, dev_raw = load_and_split_data(args.train_file)
     train_samples = prepare_training_samples(train_raw)
 
-    # 2. Initialize Model
-    logging.info(f"Initializing CrossEncoder: {args.model_name}")
-    model = CrossEncoder(args.model_name, num_labels=1, max_length=args.max_seq_length)
+    # 2. Initialize Model (Fresh or Continue)
+    model_path = args.model_name
+    
+    if args.continue_train:
+        if os.path.exists(args.output_dir) and os.listdir(args.output_dir):
+            logging.info(f"🔄 Continuing training from checkpoint: {args.output_dir}")
+            model_path = args.output_dir
+        else:
+            logging.warning(f"⚠️ Checkpoint directory {args.output_dir} is empty or missing. Starting fresh from {args.model_name}")
+
+    logging.info(f"Initializing CrossEncoder from: {model_path}")
+    model = CrossEncoder(model_path, num_labels=1, max_length=args.max_seq_length)
 
     # 3. DataLoader
     train_dataloader = DataLoader(train_samples, shuffle=True, batch_size=args.batch_size)
@@ -112,11 +121,8 @@ def train_viranker(args):
 
     logging.info("Starting training...")
 
-    # SentenceTransformers 'fit' does not natively support our custom complex evaluator
-    # in the way we want (printing a table).
-    # We will pass a simple callback or just run evaluation at the end.
-    # To keep it robust, we run training, then run evaluation manually.
-
+    # SentenceTransformers 'fit' does not natively support complex resumption logic (like skipping steps),
+    # but loading the model weights allows it to continue learning from where it left off.
     model.fit(
         train_dataloader=train_dataloader,
         epochs=args.num_epochs,
@@ -129,7 +135,7 @@ def train_viranker(args):
     logging.info("Training finished. Running final evaluation...")
 
     # Run Final Evaluation on the Dev Set
-    evaluator(model, epoch_idx=args.num_epochs)
+    evaluator(model)
 
     logging.info(f"Model saved to: {args.output_dir}")
 
@@ -143,4 +149,8 @@ if __name__ == "__main__":
     parser.add_argument("--learning_rate", type=float, default=LEARNING_RATE, help="Learning rate for optimizer")
     parser.add_argument("--max_seq_length", type=int, default=MAX_SEQ_LENGTH, help="Maximum sequence length for the model")
     parser.add_argument("--dev_split_ratio", type=float, default=DEV_SPLIT_RATIO, help="Proportion of data to use for development/validation")
+
+    # NEW ARGUMENT
+    parser.add_argument("--continue_train", action="store_true", help="If set, tries to load model from output_dir to resume training")
+
     train_viranker(parser.parse_args())
