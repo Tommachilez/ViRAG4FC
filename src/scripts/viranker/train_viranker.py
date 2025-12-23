@@ -21,6 +21,7 @@ NUM_EPOCHS = 1
 LEARNING_RATE = 2e-5
 MAX_SEQ_LENGTH = 512
 DEV_SPLIT_RATIO = 0.1
+GRADIENT_ACCUMULATION_STEPS = 16
 
 logging.basicConfig(
     format="%(asctime)s - %(message)s",
@@ -62,6 +63,11 @@ def load_and_split_data(file_path, dev_split_ratio):
     logging.info(f"Data Split -> Train: {len(train_raw)} | Dev: {len(dev_raw)}")
     return train_raw, dev_raw
 
+# Validation Helper: Filter out empty/garbage text
+def is_valid_text(t):
+    # Must be string, not empty, and have at least 5 meaningful characters
+    return isinstance(t, str) and len(t.strip()) >= 5
+
 def prepare_dataset(raw_data: list, use_maxp=False):
     """
     Converts raw data into a dictionary format suitable for HF Dataset.
@@ -70,7 +76,7 @@ def prepare_dataset(raw_data: list, use_maxp=False):
     queries = []
     docs = []
     labels = []
-    
+
     logging.info(f"Preparing dataset (MaxP={'Enabled' if use_maxp else 'Disabled'})...") 
 
     for data in raw_data:
@@ -85,17 +91,26 @@ def prepare_dataset(raw_data: list, use_maxp=False):
             pos_text = cand_items[0]
             neg_texts = cand_items[1:]
 
+            # Validate Positive Text
+            if not is_valid_text(pos_text):
+                continue
+
+            # Filter Negatives (Remove garbage negatives)
+            valid_neg_texts = [n for n in neg_texts if is_valid_text(n)]
+            if not valid_neg_texts:
+                continue
+
             # --- Logic Branching ---
             if use_maxp:
                 # MaxP Logic: Split positives into chunks, consider ALL as relevant
                 pos_chunks = sliding_window(pos_text)
-                
+
                 # Positive Samples
                 for p_chunk in pos_chunks:
                     queries.append(query)
                     docs.append(p_chunk)
                     labels.append(1.0) # Float for CE loss (usually)
-                
+
                 # Negative Samples (Using first window for efficiency)
                 for n_text in neg_texts:
                     n_chunk_0 = sliding_window(n_text)[0]
@@ -105,13 +120,13 @@ def prepare_dataset(raw_data: list, use_maxp=False):
 
             else:
                 # Standard FirstP Logic (Naive Truncation)
-                # Positive
-                queries.append(query)
-                docs.append(pos_text)
-                labels.append(1.0)
-                
-                # Negatives
                 for neg_text in neg_texts:
+                    # 1. Add Positive
+                    queries.append(query)
+                    docs.append(pos_text)
+                    labels.append(1.0)
+
+                    # 2. Add Negative
                     queries.append(query)
                     docs.append(neg_text)
                     labels.append(0.0)
@@ -120,7 +135,10 @@ def prepare_dataset(raw_data: list, use_maxp=False):
             continue
 
     logging.info(f"Generated {len(labels)} training pairs.")
-    
+
+    if len(labels) == 0:
+        raise ValueError("Dataset is empty! Check your data or validation logic.")
+
     # Create HF Dataset
     return Dataset.from_dict({
         "sentence1": queries,
@@ -154,7 +172,9 @@ def train_viranker(args):
         num_train_epochs=args.num_epochs,
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
         learning_rate=args.learning_rate,
+        # max_grad_norm=1.0,
         warmup_ratio=0.1,
         fp16=True,             # Enable mixed precision for speed
         save_total_limit=5,    # Only keep the last 5 checkpoints to save space
@@ -196,6 +216,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", type=str, default=OUTPUT_DIR)
     parser.add_argument("--model_name", type=str, default=MODEL_NAME)
     parser.add_argument("--batch_size", type=int, default=BATCH_SIZE)
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=GRADIENT_ACCUMULATION_STEPS)
     parser.add_argument("--num_epochs", type=int, default=NUM_EPOCHS)
     parser.add_argument("--learning_rate", type=float, default=LEARNING_RATE)
     parser.add_argument("--max_seq_length", type=int, default=MAX_SEQ_LENGTH)
