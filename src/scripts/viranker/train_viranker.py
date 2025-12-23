@@ -50,40 +50,64 @@ def load_and_split_data(file_path):
 
     return train_raw, dev_raw
 
-def prepare_training_samples(raw_data: list):
-    """
-    Converts a list of raw data dicts into a list of InputExample objects.
-    """
-    samples = []
 
-    logging.info(f"Preparing training samples from {len(raw_data)} raw records...") 
+def sliding_window(text, window_size=200, stride=100):
+    """
+    Splits text into overlapping chunks. 
+    Note: BERT limit is 512 TOKENS, but string splitting is rough. 
+    Safe bet is ~300-400 words if splitting by whitespace.
+    """
+    tokens = text.split()
+    if len(tokens) <= window_size:
+        return [text]
+
+    windows = []
+    for i in range(0, len(tokens), stride):
+        chunk = " ".join(tokens[i : i + window_size])
+        windows.append(chunk)
+        if i + window_size >= len(tokens):
+            break
+    return windows
+
+
+def prepare_training_samples(raw_data: list, use_maxp=False):
+    samples = []
+    logging.info(f"Preparing training samples (MaxP={'Enabled' if use_maxp else 'Disabled'})...")
 
     for data in raw_data: # Iterate over the list directly
         try:
             query = data['query']
             candidates = data['candidates']
-
-            # Convert dict items to a list to access by index
-            # Python 3.7+ preserves insertion order, so the first item 
-            # is the Positive (as inserted by our mining script).
             cand_items = list(candidates.values())
 
             if len(cand_items) < 2:
                 # Need at least 1 pos and 1 neg
                 continue
 
-            # First item is Positive
             pos_text = cand_items[0]
-
-            # Remaining items are Negatives
             neg_texts = cand_items[1:]
 
-            # Create a Triplet (Query, Pos, Neg) for every negative found
-            for neg_text in neg_texts:
-                # 1. Positive Pair
-                samples.append(InputExample(texts=[query, pos_text], label=1.0))
-                # 2. Negative Pair
-                samples.append(InputExample(texts=[query, neg_text], label=0.0))
+            if use_maxp:
+
+                pos_chunks = sliding_window(pos_text)
+
+                for neg_text in neg_texts:
+                    n_chunk = sliding_window(neg_text)[0]
+                    samples.append(InputExample(texts=[query, n_chunk], label=0.0))
+
+                for p_chunk in pos_chunks:
+                    samples.append(InputExample(texts=[query, p_chunk], label=1.0))
+
+                # for n_chunks in neg_chunks_list:
+                #     for n_chunk in n_chunks:
+                #         samples.append(InputExample(texts=[query, n_chunk], label=0.0))
+
+            else:
+                # Standard BERT-FirstP (Naive Truncation)
+                # Just take the text as-is; model will truncate to 512 tokens
+                for neg_text in neg_texts:
+                    samples.append(InputExample(texts=[query, pos_text], label=1.0))
+                    samples.append(InputExample(texts=[query, neg_text], label=0.0))
 
         except Exception as e:
             print(f"Skipping bad line: {e}")
@@ -95,11 +119,13 @@ def prepare_training_samples(raw_data: list):
 def train_viranker(args):
     # 1. Load Data
     train_raw, dev_raw = load_and_split_data(args.train_file)
-    train_samples = prepare_training_samples(train_raw)
+
+    # Pass the maxp flag here
+    train_samples = prepare_training_samples(train_raw, use_maxp=args.maxp)
 
     # 2. Initialize Model (Fresh or Continue)
     model_path = args.model_name
-    
+
     if args.continue_train:
         if os.path.exists(args.output_dir) and os.listdir(args.output_dir):
             logging.info(f"🔄 Continuing training from checkpoint: {args.output_dir}")
@@ -114,7 +140,7 @@ def train_viranker(args):
     train_dataloader = DataLoader(train_samples, shuffle=True, batch_size=args.batch_size)
 
     # 4. Initialize Evaluator
-    evaluator = RankerEvaluator(dev_raw, k_values=[3, 5, 10])
+    evaluator = RankerEvaluator(dev_raw, k_values=[3, 5, 10], use_maxp=args.maxp)
 
     # 5. Training Loop
     warmup_steps = math.ceil(len(train_dataloader) * args.num_epochs * 0.1)
@@ -151,6 +177,7 @@ if __name__ == "__main__":
     parser.add_argument("--dev_split_ratio", type=float, default=DEV_SPLIT_RATIO, help="Proportion of data to use for development/validation")
 
     # NEW ARGUMENT
+    parser.add_argument("--maxp", action="store_true", help="Enable MaxP sliding window training (200 words/100 stride).")
     parser.add_argument("--continue_train", action="store_true", help="If set, tries to load model from output_dir to resume training")
 
     train_viranker(parser.parse_args())

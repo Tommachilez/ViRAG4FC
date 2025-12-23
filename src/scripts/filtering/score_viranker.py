@@ -101,11 +101,13 @@ def load_documents(csv_path: str, content_col: str) -> dict:
         sys.exit(1)
     return docs
 
+
 def count_lines(filepath):
     """Counts lines in a file for tqdm total."""
     print(f"Counting lines in {filepath}...")
     with open(filepath, 'r', encoding='utf-8') as f:
         return sum(1 for _ in f)
+
 
 def atomic_save_pickle(data, filepath):
     """
@@ -116,6 +118,7 @@ def atomic_save_pickle(data, filepath):
     with gzip.open(temp_path, 'wb') as f:
         pickle.dump(data, f)
     os.replace(temp_path, filepath) # Atomic move
+
 
 def main():
     parser = argparse.ArgumentParser(description="Calculate ViRanker scores for Distillation.")
@@ -130,6 +133,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--doc_col", type=str, default="document", help="Column name for document text in CSV")
     parser.add_argument("--use_sigmoid", action="store_true", help="If set, apply sigmoid to squash logits to [0,1].")
+    parser.add_argument("--maxp", action="store_true", help="Enable MaxP scoring (200w/100s). Default is FirstP.")
     parser.add_argument("--append", action="store_true", help="Resume processing by loading existing output file.")
     parser.add_argument("--save_every", type=int, default=100, help="Save checkpoint every N queries.")
 
@@ -210,8 +214,16 @@ def main():
                 if not text_to_score:
                     continue
 
-                # MaxP Score
-                score = scorer.score_maxp(query_text, text_to_score)
+                # --- SCORING LOGIC ---
+                if args.maxp:
+                    # MaxP Logic
+                    score = scorer.score_maxp(query_text, text_to_score)
+                else:
+                    # FirstP Logic (Batch of 1 pair)
+                    # Implicitly truncated by tokenizer in score_batch
+                    res = scorer.score_batch([[query_text, text_to_score]])
+                    score = res[0]
+
                 q_scores[str(doc_id)] = float(score)
 
             # Only save if we got scores

@@ -6,9 +6,11 @@ class RankerEvaluator:
     """
     Custom evaluator to calculate NDCG@k and MRR@k for reranking tasks.
     """
-    def __init__(self, dev_data, k_values=None):
+    def __init__(self, dev_data, k_values=None, use_maxp=False):
         self.dev_data = dev_data
         self.k_values = k_values if k_values is not None else [3, 5, 10]
+        self.use_maxp = use_maxp
+        print(f"Evaluator initialized. Mode: {'MaxP (200w/100s)' if use_maxp else 'FirstP (Truncation)'}")
 
     def compute_dcg_at_k(self, relevance_scores, k):
         # FIX: np.asfarray is removed in NumPy 2.0 -> Use np.asarray with float dtype
@@ -32,6 +34,26 @@ class RankerEvaluator:
             if score > 0:
                 return 1.0 / (i + 1)
         return 0.0
+
+    def _get_maxp_score(self, model, query, doc_text):
+        # Re-use the logic from score_viranker.py
+        # Simple whitespace splitting for windowing
+        tokens = doc_text.split()
+        window_size = 200
+        stride = 100
+
+        if len(tokens) <= window_size:
+            windows = [doc_text]
+        else:
+            windows = []
+            for i in range(0, len(tokens), stride):
+                windows.append(" ".join(tokens[i : i + window_size]))
+                if i + window_size >= len(tokens): break
+
+        # Predict all windows
+        pairs = [[query, w] for w in windows]
+        scores = model.predict(pairs) # Returns list of floats
+        return max(scores)
 
     def __call__(self, model):
         print(f"Starting evaluation on {len(self.dev_data)} queries...")
@@ -58,11 +80,17 @@ class RankerEvaluator:
                 # Create Ground Truth labels: 1 for first doc, 0 for the rest
                 labels = [1] + [0] * len(neg_docs)
 
-                # Create pairs [[query, doc1], [query, doc2], ...]
-                pairs = [[query, doc] for doc in all_docs]
-
                 # Predict
-                pred_scores = model.predict(pairs)
+                pred_scores = []
+                if self.use_maxp:
+                    # Score each doc using MaxP windowing
+                    for doc in all_docs:
+                        score = self._get_maxp_score(model, query, doc)
+                        pred_scores.append(score)
+                else:
+                    # Standard batch predict (FirstP)
+                    pairs = [[query, doc] for doc in all_docs]
+                    pred_scores = model.predict(pairs)
 
                 # Sort results by score (descending)
                 ranked_results = sorted(zip(labels, pred_scores), key=lambda x: x[1], reverse=True)
