@@ -1,16 +1,17 @@
 import json
 import logging
-import math
-import numpy as np
 import os
 import argparse
-from torch.utils.data import DataLoader
-from sentence_transformers import CrossEncoder, InputExample
 from sklearn.model_selection import train_test_split
+from datasets import Dataset
+
+from sentence_transformers import CrossEncoder
+from sentence_transformers.cross_encoder.trainer import CrossEncoderTrainer
+from sentence_transformers.cross_encoder.training_args import CrossEncoderTrainingArguments
 
 from .evaluator import RankerEvaluator
 
-# --- Configuration ---
+# --- Configuration Constants ---
 # MODEL_NAME = "BAAI/bge-m3"
 MODEL_NAME = "namdp-ptit/ViRanker"
 TRAIN_FILE = "train_data.jsonl"
@@ -19,7 +20,6 @@ BATCH_SIZE = 4
 NUM_EPOCHS = 1
 LEARNING_RATE = 2e-5
 MAX_SEQ_LENGTH = 512
-# Evaluation Split (0.1 = 10% of data used for Dev/Metrics)
 DEV_SPLIT_RATIO = 0.1
 
 logging.basicConfig(
@@ -28,34 +28,11 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# --- Main Training Logic ---
-
-def load_and_split_data(file_path):
-    all_data = []
-
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Input file not found: {file_path}")
-
-    # logging.info(f"Loading raw data from {file_path}...")
-    with open(file_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            try:
-                all_data.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-
-    # Split into Train and Dev (Validation) sets
-    train_raw, dev_raw = train_test_split(all_data, test_size=DEV_SPLIT_RATIO, random_state=42)
-    logging.info(f"Data Split -> Train: {len(train_raw)} | Dev: {len(dev_raw)}")
-
-    return train_raw, dev_raw
-
-
+# --- Helper for MaxP ---
 def sliding_window(text, window_size=200, stride=100):
     """
-    Splits text into overlapping chunks. 
-    Note: BERT limit is 512 TOKENS, but string splitting is rough. 
-    Safe bet is ~300-400 words if splitting by whitespace.
+    Splits text into overlapping chunks of words.
+    Optimal params from Dai et al. (2019): 200 words, stride 100.
     """
     tokens = text.split()
     if len(tokens) <= window_size:
@@ -69,115 +46,162 @@ def sliding_window(text, window_size=200, stride=100):
             break
     return windows
 
+def load_and_split_data(file_path, dev_split_ratio):
+    all_data = []
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Input file not found: {file_path}")
 
-def prepare_training_samples(raw_data: list, use_maxp=False):
-    samples = []
-    logging.info(f"Preparing training samples (MaxP={'Enabled' if use_maxp else 'Disabled'})...")
+    with open(file_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            try:
+                all_data.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
 
-    for data in raw_data: # Iterate over the list directly
+    train_raw, dev_raw = train_test_split(all_data, test_size=dev_split_ratio, random_state=42)
+    logging.info(f"Data Split -> Train: {len(train_raw)} | Dev: {len(dev_raw)}")
+    return train_raw, dev_raw
+
+def prepare_dataset(raw_data: list, use_maxp=False):
+    """
+    Converts raw data into a dictionary format suitable for HF Dataset.
+    Columns: 'sentence1' (Query), 'sentence2' (Doc), 'label' (Score)
+    """
+    queries = []
+    docs = []
+    labels = []
+    
+    logging.info(f"Preparing dataset (MaxP={'Enabled' if use_maxp else 'Disabled'})...") 
+
+    for data in raw_data:
         try:
             query = data['query']
             candidates = data['candidates']
             cand_items = list(candidates.values())
 
             if len(cand_items) < 2:
-                # Need at least 1 pos and 1 neg
                 continue
 
             pos_text = cand_items[0]
             neg_texts = cand_items[1:]
 
+            # --- Logic Branching ---
             if use_maxp:
-
+                # MaxP Logic: Split positives into chunks, consider ALL as relevant
                 pos_chunks = sliding_window(pos_text)
-
-                for neg_text in neg_texts:
-                    n_chunk = sliding_window(neg_text)[0]
-                    samples.append(InputExample(texts=[query, n_chunk], label=0.0))
-
+                
+                # Positive Samples
                 for p_chunk in pos_chunks:
-                    samples.append(InputExample(texts=[query, p_chunk], label=1.0))
-
-                # for n_chunks in neg_chunks_list:
-                #     for n_chunk in n_chunks:
-                #         samples.append(InputExample(texts=[query, n_chunk], label=0.0))
+                    queries.append(query)
+                    docs.append(p_chunk)
+                    labels.append(1.0) # Float for CE loss (usually)
+                
+                # Negative Samples (Using first window for efficiency)
+                for n_text in neg_texts:
+                    n_chunk_0 = sliding_window(n_text)[0]
+                    queries.append(query)
+                    docs.append(n_chunk_0)
+                    labels.append(0.0)
 
             else:
-                # Standard BERT-FirstP (Naive Truncation)
-                # Just take the text as-is; model will truncate to 512 tokens
+                # Standard FirstP Logic (Naive Truncation)
+                # Positive
+                queries.append(query)
+                docs.append(pos_text)
+                labels.append(1.0)
+                
+                # Negatives
                 for neg_text in neg_texts:
-                    samples.append(InputExample(texts=[query, pos_text], label=1.0))
-                    samples.append(InputExample(texts=[query, neg_text], label=0.0))
+                    queries.append(query)
+                    docs.append(neg_text)
+                    labels.append(0.0)
 
         except Exception as e:
-            print(f"Skipping bad line: {e}")
             continue
 
-    print(f"Loaded {len(samples)} training triples.")
-    return samples
+    logging.info(f"Generated {len(labels)} training pairs.")
+    
+    # Create HF Dataset
+    return Dataset.from_dict({
+        "sentence1": queries,
+        "sentence2": docs,
+        "label": labels
+    })
 
 def train_viranker(args):
-    # 1. Load Data
-    train_raw, dev_raw = load_and_split_data(args.train_file)
+    # 1. Load Data & Prepare HF Dataset
+    train_raw, dev_raw = load_and_split_data(args.train_file, args.dev_split_ratio)
+    train_dataset = prepare_dataset(train_raw, use_maxp=args.maxp)
 
-    # Pass the maxp flag here
-    train_samples = prepare_training_samples(train_raw, use_maxp=args.maxp)
-
-    # 2. Initialize Model (Fresh or Continue)
+    # 2. Initialize Model
     model_path = args.model_name
-
     if args.continue_train:
-        if os.path.exists(args.output_dir) and os.listdir(args.output_dir):
-            logging.info(f"🔄 Continuing training from checkpoint: {args.output_dir}")
-            model_path = args.output_dir
-        else:
-            logging.warning(f"⚠️ Checkpoint directory {args.output_dir} is empty or missing. Starting fresh from {args.model_name}")
+        # Check if output_dir has valid checkpoints
+        if os.path.exists(args.output_dir) and any(x.startswith("checkpoint") for x in os.listdir(args.output_dir)):
+            logging.info(f"🔄 Checkpoint detected. Trainer will resume from: {args.output_dir}")
 
     logging.info(f"Initializing CrossEncoder from: {model_path}")
+
     model = CrossEncoder(model_path, num_labels=1, max_length=args.max_seq_length)
 
-    # 3. DataLoader
-    train_dataloader = DataLoader(train_samples, shuffle=True, batch_size=args.batch_size)
-
-    # 4. Initialize Evaluator
+    # 3. Initialize Evaluator
     evaluator = RankerEvaluator(dev_raw, k_values=[3, 5, 10], use_maxp=args.maxp)
 
-    # 5. Training Loop
-    warmup_steps = math.ceil(len(train_dataloader) * args.num_epochs * 0.1)
+    # 4. Training Arguments
 
-    logging.info("Starting training...")
+    training_args = CrossEncoderTrainingArguments(
+        output_dir=args.output_dir,
+        num_train_epochs=args.num_epochs,
+        per_device_train_batch_size=args.batch_size,
+        per_device_eval_batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
+        warmup_ratio=0.1,
+        fp16=True,             # Enable mixed precision for speed
+        save_total_limit=5,    # Only keep the last 5 checkpoints to save space
+        logging_steps=100,
 
-    # SentenceTransformers 'fit' does not natively support complex resumption logic (like skipping steps),
-    # but loading the model weights allows it to continue learning from where it left off.
-    model.fit(
-        train_dataloader=train_dataloader,
-        epochs=args.num_epochs,
-        warmup_steps=warmup_steps,
-        output_path=args.output_dir,
-        optimizer_params={'lr': args.learning_rate},
-        show_progress_bar=True
+        # KEY CHANGES FOR SAVING:
+        save_strategy="steps" if args.save_every > 0 else "no",
+        save_steps=args.save_every if args.save_every > 0 else 0,
+
+        # Evaluation settings
+        eval_strategy="no", # We use our custom evaluator at the end, or you can add it to callbacks
     )
 
-    logging.info("Training finished. Running final evaluation...")
+    # 5. Initialize Trainer
+    trainer = CrossEncoderTrainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset,
+        # We don't pass 'evaluator' here because CrossEncoderTrainer expects a 
+        # specific CEBinaryClassificationEvaluator type.
+        # We will run our custom RankerEvaluator manually at the end.
+    )
 
-    # Run Final Evaluation on the Dev Set
-    evaluator(model)
+    # 6. Train
+    logging.info("Starting training...")
+    trainer.train(resume_from_checkpoint=args.continue_train)
 
-    logging.info(f"Model saved to: {args.output_dir}")
+    # 7. Final Save & Eval
+    logging.info("Training finished. Saving final model...")
+    trainer.save_model(args.output_dir)
+
+    # Run custom evaluation
+    logging.info("Running final evaluation...")
+    evaluator(model) # 'model' object is updated in-place by trainer
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train ViRanker Model")
-    parser.add_argument("--train_file", type=str, default=TRAIN_FILE, help="Path to training data file (JSONL format)")
-    parser.add_argument("--output_dir", type=str, default=OUTPUT_DIR, help="Directory to save the trained model")
-    parser.add_argument("--model_name", type=str, default=MODEL_NAME, help="Pretrained model name or path")
-    parser.add_argument("--batch_size", type=int, default=BATCH_SIZE, help="Training batch size")
-    parser.add_argument("--num_epochs", type=int, default=NUM_EPOCHS, help="Number of training epochs")
-    parser.add_argument("--learning_rate", type=float, default=LEARNING_RATE, help="Learning rate for optimizer")
-    parser.add_argument("--max_seq_length", type=int, default=MAX_SEQ_LENGTH, help="Maximum sequence length for the model")
-    parser.add_argument("--dev_split_ratio", type=float, default=DEV_SPLIT_RATIO, help="Proportion of data to use for development/validation")
-
-    # NEW ARGUMENT
-    parser.add_argument("--maxp", action="store_true", help="Enable MaxP sliding window training (200 words/100 stride).")
-    parser.add_argument("--continue_train", action="store_true", help="If set, tries to load model from output_dir to resume training")
+    parser.add_argument("--train_file", type=str, default=TRAIN_FILE)
+    parser.add_argument("--output_dir", type=str, default=OUTPUT_DIR)
+    parser.add_argument("--model_name", type=str, default=MODEL_NAME)
+    parser.add_argument("--batch_size", type=int, default=BATCH_SIZE)
+    parser.add_argument("--num_epochs", type=int, default=NUM_EPOCHS)
+    parser.add_argument("--learning_rate", type=float, default=LEARNING_RATE)
+    parser.add_argument("--max_seq_length", type=int, default=MAX_SEQ_LENGTH)
+    parser.add_argument("--dev_split_ratio", type=float, default=DEV_SPLIT_RATIO)
+    parser.add_argument("--continue_train", action="store_true", help="Resume from checkpoint if available")
+    parser.add_argument("--maxp", action="store_true", help="Enable MaxP sliding window training.")
+    parser.add_argument("--save_every", type=int, default=500, help="Save checkpoint every N steps.")
 
     train_viranker(parser.parse_args())
