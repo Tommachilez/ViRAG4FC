@@ -10,7 +10,7 @@ class RankerEvaluator:
         self.dev_data = dev_data
         self.k_values = k_values if k_values is not None else [3, 5, 10]
         self.use_maxp = use_maxp
-        print(f"Evaluator initialized. Mode: {'MaxP (200w/100s)' if use_maxp else 'FirstP (Truncation)'}")
+        print(f"Evaluator initialized. Mode: {'MaxP (250w/100s)' if use_maxp else 'FirstP (Truncation)'}")
 
     def compute_dcg_at_k(self, relevance_scores, k):
         # FIX: np.asfarray is removed in NumPy 2.0 -> Use np.asarray with float dtype
@@ -39,7 +39,7 @@ class RankerEvaluator:
         # Re-use the logic from score_viranker.py
         # Simple whitespace splitting for windowing
         tokens = doc_text.split()
-        window_size = 200
+        window_size = 250
         stride = 100
 
         if len(tokens) <= window_size:

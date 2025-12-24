@@ -18,8 +18,8 @@ TRAIN_FILE = "train_data.jsonl"
 OUTPUT_DIR = "./viranker_checkpoint"
 BATCH_SIZE = 4
 NUM_EPOCHS = 1
-LEARNING_RATE = 2e-5
-MAX_SEQ_LENGTH = 512
+LEARNING_RATE = 1e-5
+MAX_SEQ_LENGTH = 1024
 DEV_SPLIT_RATIO = 0.1
 GRADIENT_ACCUMULATION_STEPS = 16
 
@@ -30,10 +30,9 @@ logging.basicConfig(
 )
 
 # --- Helper for MaxP ---
-def sliding_window(text, window_size=200, stride=100):
+def sliding_window(text, window_size=250, stride=100):
     """
     Splits text into overlapping chunks of words.
-    Optimal params from Dai et al. (2019): 200 words, stride 100.
     """
     tokens = text.split()
     if len(tokens) <= window_size:
