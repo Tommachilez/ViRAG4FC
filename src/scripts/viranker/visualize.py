@@ -225,17 +225,17 @@ def main():
     _, dev_data = train_test_split(all_data, test_size=args.dev_split, random_state=42)
     logging.info(f"Dev set size: {len(dev_data)} queries.")
 
-    # 2. Evaluate Base Model
-    logging.info(f"--- Evaluating Base Model: {args.base_model} ---")
-    base_results = evaluate_model(args.base_model, dev_data, args)
-
-    # 3. Evaluate Trained Model
+    # 2. Evaluate Trained Model
     logging.info(f"--- Evaluating Trained Model: {args.trained_model} ---")
     if not os.path.exists(args.trained_model) and not args.trained_model.startswith("namdp-ptit"):
         logging.warning(f"Trained model path '{args.trained_model}' not found on disk. Comparing against 0s.")
         trained_results = {k: 0.0 for k in base_results}
     else:
         trained_results = evaluate_model(args.trained_model, dev_data, args)
+
+    # 3. Evaluate Base Model
+    logging.info(f"--- Evaluating Base Model: {args.base_model} ---")
+    base_results = evaluate_model(args.base_model, dev_data, args)
 
     # 4. Visualize
     if base_results and trained_results:
