@@ -15,6 +15,12 @@ except ImportError:
     print("Error: Pyserini not installed.", file=sys.stderr)
     sys.exit(1)
 
+def sanitize_text(text):
+    """Removes tabs and newlines for safe TSV writing."""
+    if not text:
+        return ""
+    return text.replace('\t', ' ').replace('\n', ' ').strip()
+
 def load_csv_maps(csv_path, id_col, doc_col):
     """
     Loads raw text to reconstruct final triples.
@@ -43,6 +49,26 @@ def load_csv_maps(csv_path, id_col, doc_col):
 
     return id_to_text, text_to_id
 
+def save_unique_mapping(text_to_id_map, output_file_path):
+    """
+    Saves the mapping of Canonical ID -> Unique Text to a TSV file.
+    This ensures downstream scripts know exactly which text corresponds to the IDs in the JSONL.
+    """
+    output_dir = os.path.dirname(output_file_path)
+    # If output_dir is empty (current dir), leave it as is, otherwise join
+    mapping_path = os.path.join(output_dir, "document_unique_mapping.tsv") if output_dir else "document_unique_mapping.tsv"
+
+    print(f">>> Saving unique document mapping to {mapping_path}...")
+
+    try:
+        with open(mapping_path, 'w', encoding='utf-8') as f:
+            for text, rid in text_to_id_map.items():
+                clean_text = sanitize_text(text)
+                f.write(f"{rid}\t{clean_text}\n")
+        print(f">>> Mapping saved. ({len(text_to_id_map)} unique documents)")
+    except Exception as e:
+        print(f"Error saving mapping file: {e}")
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--preprocessed_dir", required=True)
@@ -67,6 +93,8 @@ def main():
     # row_id_to_text: Used to get the query's positive doc text
     # text_to_row_id: Used to convert retrieved candidates back to original IDs
     row_id_to_text, text_to_row_id = load_csv_maps(args.original_doc_csv, args.id_col, args.doc_col)
+
+    save_unique_mapping(text_to_row_id, args.output_jsonl)
 
     # ---------------------------------------------------------
     # STEP 1: INDEXING (Subprocess)
