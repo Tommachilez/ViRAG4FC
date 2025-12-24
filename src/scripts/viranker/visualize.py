@@ -230,7 +230,7 @@ def main():
     logging.info(f"--- Evaluating Trained Model: {args.trained_model} ---")
     if not os.path.exists(args.trained_model) and not args.trained_model.startswith("namdp-ptit"):
         logging.warning(f"Trained model path '{args.trained_model}' not found on disk. Comparing against 0s.")
-        sys.exits(0)
+        sys.exit(0)
     else:
         trained_results = evaluate_model(args.trained_model, dev_data, args)
 
