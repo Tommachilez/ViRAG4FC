@@ -125,32 +125,63 @@ def clean_text(text):
     return text.replace('\t', ' ').replace('\n', ' ').strip()
 
 
-def sync_mapping_file(mapping_path, target_count):
+def ensure_mapping_consistency(mapping_path, jsonl_path, target_count):
     """
-    Ensures the mapping file has exactly 'target_count' lines.
-    Removes 'ghost' entries from a previous crash/interrupted run.
+    Ensures the TSV mapping file exists and has exactly 'target_count' lines
+    corresponding to the pickle. Rebuilds it from JSONL if missing/short.
     """
-    if not os.path.exists(mapping_path):
+    # 1. Check current state of mapping file
+    current_lines = []
+    if os.path.exists(mapping_path):
+        with open(mapping_path, 'r', encoding='utf-8') as f:
+            current_lines = f.readlines()
+
+    current_count = len(current_lines)
+
+    # CASE A: Perfect Sync
+    if current_count == target_count:
+        print(f"Mapping file check: OK ({target_count} lines).")
         return
 
-    # Check line count first to avoid reading file if unnecessary
-    with open(mapping_path, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
-
-    current_len = len(lines)
-
-    if current_len == target_count:
-        print(f"Mapping file is in sync ({current_len} lines).")
-        return
-
-    if current_len > target_count:
-        print(f"Syncing mapping file: Truncating from {current_len} to {target_count} lines...")
+    # CASE B: Mapping is too long (ghost entries) -> Truncate
+    if current_count > target_count:
+        print(f"Mapping file check: Too long ({current_count} > {target_count}). Truncating...")
         with open(mapping_path, 'w', encoding='utf-8') as f:
-            f.writelines(lines[:target_count])
-    else:
-        # This is the "Warning" case you had.
-        # It usually means the user deleted the mapping file or it got corrupted.
-        print(f"Warning: Mapping file ({current_len}) is shorter than scores ({target_count}). Mappings may be missing.")
+            f.writelines(current_lines[:target_count])
+        return
+
+    # CASE C: Mapping is missing or too short -> Reconstruct
+    # This happens if TSV was deleted or crashed before flushing
+    print(f"Mapping file check: Incomplete or Missing ({current_count} < {target_count}). RECONSTRUCTING...")
+
+    processed_so_far = 0
+    reconstructed_lines = []
+
+    # We scan the input JSONL just to rebuild the mapping
+    with open(jsonl_path, 'r', encoding='utf-8') as f:
+        for line in tqdm(f, total=target_count, desc="Rebuilding Mapping", unit="lines"):
+            if processed_so_far >= target_count:
+                break
+
+            try:
+                entry = json.loads(line)
+                query_text = entry.get('query', '')
+                candidates = entry.get('candidates', {})
+
+                if not query_text or not candidates: continue
+
+                # Format: ID \t Text
+                clean_q = clean_text(query_text)
+                reconstructed_lines.append(f"{processed_so_far}\t{clean_q}\n")
+                processed_so_far += 1
+            except:
+                continue
+
+    # Write the rebuilt file from scratch
+    with open(mapping_path, 'w', encoding='utf-8') as f:
+        f.writelines(reconstructed_lines)
+
+    print(f"Mapping file reconstructed successfully with {len(reconstructed_lines)} lines.")
 
 
 def main():
@@ -189,23 +220,25 @@ def main():
     full_scores = {}
     already_processed_count = 0
 
-    # Mode for opening the mapping file
-    mapping_mode = 'w'
-
     if args.append and os.path.exists(score_file_path):
-        print(f"Append mode: Loading existing scores from {score_file_path}...")
+        print(f"Append mode: Loading scores from {score_file_path}...")
         try:
             with gzip.open(score_file_path, 'rb') as f:
                 full_scores = pickle.load(f)
             already_processed_count = len(full_scores)
-            print(f"Found {already_processed_count} existing queries. Resuming...")
-            sync_mapping_file(mapping_file_path, already_processed_count)
-            mapping_mode = 'a' # Append to existing mapping
+            print(f"Found {already_processed_count} existing scores.")
+
+            ensure_mapping_consistency(mapping_file_path, args.mining_jsonl, already_processed_count)
+
         except Exception as e:
-            print(f"Warning: Could not load existing pickle ({e}). Starting fresh.")
+            print(f"Warning: Pickle corrupted ({e}). Starting fresh.")
             full_scores = {}
             already_processed_count = 0
-            mapping_mode = 'w'
+    else:
+        # If not appending or pickle missing, ensure we start fresh for TSV too
+        if os.path.exists(mapping_file_path):
+            print("Starting fresh: Overwriting existing mapping file.")
+            open(mapping_file_path, 'w').close() # Create empty file immediately
 
     query_counter = already_processed_count
     total_lines = count_lines(args.mining_jsonl)
@@ -215,7 +248,7 @@ def main():
     # Open the mapping file
     # buffering=1 means line-buffered (good for text files)
     with open(args.mining_jsonl, 'r', encoding='utf-8') as f_in, \
-         open(mapping_file_path, mapping_mode, encoding='utf-8', buffering=1) as f_map:
+         open(mapping_file_path, 'a', encoding='utf-8', buffering=1) as f_map:
 
         pbar = tqdm(total=total_lines, desc="Processing", unit="queries")
         valid_inputs_seen = 0
@@ -253,7 +286,6 @@ def main():
                     continue
 
                 if args.maxp:
-                    # UPDATED: Using safe default parameters (200/100) inside the method
                     score = scorer.score_maxp(query_text, text_to_score)
                 else:
                     res = scorer.score_batch([[query_text, text_to_score]])
