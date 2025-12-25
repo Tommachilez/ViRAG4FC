@@ -91,9 +91,11 @@ def load_csv_to_map(csv_path: str, id_col: str, text_col: str) -> Dict[str, str]
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--full_data_csv", required=True, help="Original full dataset")
+    parser.add_argument("--full_data_csv", required=True, help="Original full dataset (for generated query ID lookup)")
     parser.add_argument("--doc_mapping", required=True, help="CSV with columns: doc_id, document")
+    parser.add_argument("--query_mapping", required=True, help="CSV with columns: query_id, query")
     parser.add_argument("--query_jsonl", required=True, help="Generated queries JSONL")
+    parser.add_argument("--train_csv", required=False, help="Training data CSV with schema {document, evidence, claim, id}")
 
     parser.add_argument("--vncorenlp_path", required=True)
     parser.add_argument("--stopwords_path", required=True)
@@ -102,6 +104,7 @@ def main():
     # Column configuration
     parser.add_argument("--doc_col", default="document")
     parser.add_argument("--id_col", default="id")
+    parser.add_argument("--claim_col", default="claim", help="Column name for claim in train_csv")
     parser.add_argument("--map_doc_id", default="doc_id")
     parser.add_argument("--map_doc_col", default="document")
 
@@ -160,49 +163,92 @@ def main():
     missing_docs_count = 0
     resolved_count = 0
 
-    with open(args.query_jsonl, 'r', encoding='utf-8') as f_in, \
-         open(out_query_path, 'w', encoding='utf-8') as f_out:
+    with open(out_query_path, 'w', encoding='utf-8') as f_out:
 
-        for line in tqdm(f_in, desc="Queries"):
-            try:
-                data = json.loads(line)
-                original_pos_id = data.get(args.id_col) # The ID in the JSONL (matches full_data_csv)
+        # --- 3a. Process Generated Queries (JSONL) ---
+        print(f"   > Processing Generated Queries from {args.query_jsonl}")
+        with open(args.query_jsonl, 'r', encoding='utf-8') as f_in:
+            for line in tqdm(f_in, desc="Generated Queries"):
+                try:
+                    data = json.loads(line)
+                    original_pos_id = data.get(args.id_col)
 
-                # 1. Get raw text from original full data
-                raw_doc_text = original_id_to_text.get(original_pos_id)
+                    # 1. Get raw text from original full data
+                    raw_doc_text = original_id_to_text.get(original_pos_id)
+                    if not raw_doc_text:
+                        continue
 
-                if not raw_doc_text:
-                    # If we can't find the text for this ID, we can't map it
+                    # 2. Find Canonical ID using the text
+                    canonical_id = canonical_text_to_id.get(raw_doc_text)
+                    if not canonical_id:
+                        missing_docs_count += 1
+                        continue
+
+                    # 3. Process generated queries
+                    processed_queries = []
+                    for q_obj in data.get("generated_queries", []):
+                        raw_q = q_obj.get("query", "")
+                        seg_q = processor.process(raw_q)
+                        if seg_q:
+                            processed_queries.append({
+                                "query_raw": raw_q,
+                                "query_seg": seg_q
+                            })
+
+                    if processed_queries:
+                        out_obj = {
+                            "pos_doc_id": canonical_id, 
+                            "queries": processed_queries
+                        }
+                        f_out.write(json.dumps(out_obj, ensure_ascii=False) + "\n")
+                        resolved_count += 1
+
+                except json.JSONDecodeError:
                     continue
 
-                # 2. Find Canonical ID using the text
-                canonical_id = canonical_text_to_id.get(raw_doc_text)
+        # --- 3b. Process Real Claims (Train CSV) ---
+        if args.train_csv and os.path.exists(args.train_csv):
+            print(f"   > Processing Claims from {args.train_csv}")
+            csv.field_size_limit(sys.maxsize)
 
-                if not canonical_id:
-                    missing_docs_count += 1
-                    continue
+            with open(args.train_csv, 'r', encoding='utf-8') as f_train:
+                reader = csv.DictReader(f_train)
 
-                # 3. Process the queries
-                processed_queries = []
-                for q_obj in data.get("generated_queries", []):
-                    raw_q = q_obj.get("query", "")
-                    seg_q = processor.process(raw_q)
-                    if seg_q:
-                        processed_queries.append({
-                            "query_raw": raw_q,
-                            "query_seg": seg_q
-                        })
+                for row in tqdm(reader, desc="Train Claims"):
+                    claim = row.get(args.claim_col)
+                    doc_text = row.get(args.doc_col) # Uses same document col name as Full Data
 
-                if processed_queries:
+                    if not claim or not doc_text:
+                        continue
+
+                    doc_text = doc_text.strip()
+
+                    # 1. Find Canonical ID directly using the text (Train CSV has text)
+                    canonical_id = canonical_text_to_id.get(doc_text)
+
+                    if not canonical_id:
+                        # If the doc text in train_csv isn't in doc_mapping, we can't build a pair
+                        missing_docs_count += 1
+                        continue
+
+                    # 2. Tokenize the Claim
+                    seg_claim = processor.process(claim)
+                    if not seg_claim:
+                        continue
+
+                    # 3. Write Output
                     out_obj = {
-                        "pos_doc_id": canonical_id, # Replaced with ID from doc_mapping
-                        "queries": processed_queries
+                        "pos_doc_id": canonical_id,
+                        "queries": [{
+                            "query_raw": claim,
+                            "query_seg": seg_claim
+                        }]
                     }
                     f_out.write(json.dumps(out_obj, ensure_ascii=False) + "\n")
                     resolved_count += 1
-
-            except json.JSONDecodeError:
-                continue
+        else:
+            if args.train_csv:
+                print(f"Warning: train_csv path provided but file does not exist: {args.train_csv}")
 
     print(">>> Preprocessing complete.")
     print(f"    Files saved to {args.output_dir}")
