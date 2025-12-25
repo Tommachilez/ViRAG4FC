@@ -2,14 +2,11 @@ import json
 import logging
 import os
 import argparse
-from sklearn.model_selection import train_test_split
 from datasets import Dataset
 
 from sentence_transformers import CrossEncoder
 from sentence_transformers.cross_encoder.trainer import CrossEncoderTrainer
 from sentence_transformers.cross_encoder.training_args import CrossEncoderTrainingArguments
-
-from .evaluator import RankerEvaluator
 
 # --- Configuration Constants ---
 # MODEL_NAME = "BAAI/bge-m3"
@@ -20,7 +17,6 @@ BATCH_SIZE = 4
 NUM_EPOCHS = 1
 LEARNING_RATE = 1e-5
 MAX_SEQ_LENGTH = 1024
-DEV_SPLIT_RATIO = 0.1
 GRADIENT_ACCUMULATION_STEPS = 16
 
 logging.basicConfig(
@@ -46,7 +42,10 @@ def sliding_window(text, window_size=250, stride=100):
             break
     return windows
 
-def load_and_split_data(file_path, dev_split_ratio):
+def load_data(file_path):
+    """
+    Loads all data from JSONL without splitting.
+    """
     all_data = []
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Input file not found: {file_path}")
@@ -58,9 +57,8 @@ def load_and_split_data(file_path, dev_split_ratio):
             except json.JSONDecodeError:
                 continue
 
-    train_raw, dev_raw = train_test_split(all_data, test_size=dev_split_ratio, random_state=42)
-    logging.info(f"Data Split -> Train: {len(train_raw)} | Dev: {len(dev_raw)}")
-    return train_raw, dev_raw
+    logging.info(f"Loaded {len(all_data)} samples for training.")
+    return all_data
 
 # Validation Helper: Filter out empty/garbage text
 def is_valid_text(t):
@@ -147,7 +145,7 @@ def prepare_dataset(raw_data: list, use_maxp=False):
 
 def train_viranker(args):
     # 1. Load Data & Prepare HF Dataset
-    train_raw, dev_raw = load_and_split_data(args.train_file, args.dev_split_ratio)
+    train_raw = load_data(args.train_file)
     train_dataset = prepare_dataset(train_raw, use_maxp=args.maxp)
 
     # 2. Initialize Model
@@ -161,11 +159,7 @@ def train_viranker(args):
 
     model = CrossEncoder(model_path, num_labels=1, max_length=args.max_seq_length)
 
-    # 3. Initialize Evaluator
-    evaluator = RankerEvaluator(dev_raw, k_values=[3, 5, 10], use_maxp=args.maxp)
-
-    # 4. Training Arguments
-
+    # 3. Training Arguments
     training_args = CrossEncoderTrainingArguments(
         output_dir=args.output_dir,
         num_train_epochs=args.num_epochs,
@@ -177,37 +171,32 @@ def train_viranker(args):
         warmup_ratio=0.1,
         fp16=True,             # Enable mixed precision for speed
         save_total_limit=5,    # Only keep the last 5 checkpoints to save space
-        logging_steps=100,
+        logging_steps=args.logging_steps,
 
         # KEY CHANGES FOR SAVING:
         save_strategy="steps" if args.save_every > 0 else "no",
         save_steps=args.save_every if args.save_every > 0 else 0,
 
         # Evaluation settings
-        eval_strategy="no", # We use our custom evaluator at the end, or you can add it to callbacks
+        eval_strategy="no",
     )
 
-    # 5. Initialize Trainer
+    # 4. Initialize Trainer
     trainer = CrossEncoderTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         # We don't pass 'evaluator' here because CrossEncoderTrainer expects a
         # specific CEBinaryClassificationEvaluator type.
-        # We will run our custom RankerEvaluator manually at the end.
     )
 
-    # 6. Train
+    # 5. Train
     logging.info("Starting training...")
     trainer.train(resume_from_checkpoint=args.continue_train)
 
-    # 7. Final Save & Eval
+    # 6. Final Save
     logging.info("Training finished. Saving final model...")
     trainer.save_model(args.output_dir)
-
-    # Run custom evaluation
-    logging.info("Running final evaluation...")
-    evaluator(model) # 'model' object is updated in-place by trainer
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train ViRanker Model")
@@ -219,7 +208,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_epochs", type=int, default=NUM_EPOCHS)
     parser.add_argument("--learning_rate", type=float, default=LEARNING_RATE)
     parser.add_argument("--max_seq_length", type=int, default=MAX_SEQ_LENGTH)
-    parser.add_argument("--dev_split_ratio", type=float, default=DEV_SPLIT_RATIO)
+    parser.add_argument("--logging_steps", type=int, default=100, help="Log every N steps.")
     parser.add_argument("--continue_train", action="store_true", help="Resume from checkpoint if available")
     parser.add_argument("--maxp", action="store_true", help="Enable MaxP sliding window training.")
     parser.add_argument("--save_every", type=int, default=500, help="Save checkpoint every N steps.")
