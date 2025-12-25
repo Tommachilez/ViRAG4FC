@@ -93,7 +93,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--full_data_csv", required=True, help="Original full dataset (for generated query ID lookup)")
     parser.add_argument("--doc_mapping", required=True, help="CSV with columns: doc_id, document")
-    parser.add_argument("--query_mapping", required=True, help="CSV with columns: query_id, query")
+    # parser.add_argument("--query_mapping", required=True, help="CSV with columns: query_id, query")
     parser.add_argument("--query_jsonl", required=True, help="Generated queries JSONL")
     parser.add_argument("--train_csv", required=False, help="Training data CSV with schema {document, evidence, claim, id}")
 
