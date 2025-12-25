@@ -6,7 +6,6 @@ import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 from sentence_transformers import CrossEncoder
-from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
 # --- Configuration Constants (Defaults) ---
@@ -28,7 +27,6 @@ def parse_args():
     # Data & Output
     parser.add_argument("--jsonl", type=str, default=DEFAULT_DATA_FILE, help="Path to the training data JSONL file.")
     parser.add_argument("--output_image", type=str, default=DEFAULT_OUTPUT_IMG, help="Filename for the comparison chart.")
-    parser.add_argument("--dev_split", type=float, default=0.1, help="Ratio of data to use for validation (default: 0.1).")
 
     # MaxP / Evaluation Settings
     parser.add_argument("--maxp", action="store_true", help="Enable MaxP sliding window scoring.")
@@ -204,7 +202,7 @@ def plot_comparison(base_scores, trained_scores, output_path):
     fig.tight_layout()
     plt.savefig(output_path)
     logging.info(f"Comparison chart saved to {output_path}")
-    # plt.show() # Uncomment if running locally with GUI
+    plt.show() # Uncomment if running locally with GUI
 
 # --- Main Execution ---
 def main():
@@ -215,19 +213,17 @@ def main():
         logging.error(f"Data file {args.jsonl} not found.")
         return
 
-    logging.info(f"Loading data from {args.jsonl}...")
-    all_data = []
+    print(f"Loading data from {args.jsonl}...")
+    dev_data = [] # Treat all data as dev data
     with open(args.jsonl, 'r', encoding='utf-8') as f:
         for line in f:
-            try: all_data.append(json.loads(line))
+            try: dev_data.append(json.loads(line))
             except: continue
 
-    # Use exact same random_state=42 to match training split
-    _, dev_data = train_test_split(all_data, test_size=args.dev_split, random_state=42)
-    logging.info(f"Dev set size: {len(dev_data)} queries.")
+    print(f"Total queries for evaluation: {len(dev_data)}")
 
     # 2. Evaluate Trained Model
-    logging.info(f"--- Evaluating Trained Model: {args.trained_model} ---")
+    print(f"--- Evaluating Trained Model: {args.trained_model} ---")
     if not os.path.exists(args.trained_model) and not args.trained_model.startswith("namdp-ptit"):
         logging.warning(f"Trained model path '{args.trained_model}' not found on disk. Comparing against 0s.")
         sys.exit(0)
@@ -235,7 +231,7 @@ def main():
         trained_results = evaluate_model(args.trained_model, dev_data, args)
 
     # 3. Evaluate Base Model
-    logging.info(f"--- Evaluating Base Model: {args.base_model} ---")
+    print(f"--- Evaluating Base Model: {args.base_model} ---")
     base_results = evaluate_model(args.base_model, dev_data, args)
 
     # 4. Visualize
