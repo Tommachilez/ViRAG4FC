@@ -79,12 +79,12 @@ def get_md5(text: str) -> str:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_tsv", required=True, help="Path to TSV file containing Query and Document")
+    parser.add_argument("--input_csv", required=True, help="Path to CSV file containing Query and Document")
     parser.add_argument("--vncorenlp_path", required=True)
     parser.add_argument("--stopwords_path", required=True)
     parser.add_argument("--output_dir", required=True)
 
-    # Column names in the TSV
+    # Column names in the CSV
     parser.add_argument("--doc_col", default="document", help="Header name for the document column")
     parser.add_argument("--query_col", default="query", help="Header name for the query column")
     parser.add_argument("--enable_whitelist", action="store_true", help="If set, prevents specific important stopwords (negations, logic) from being filtered out.")
@@ -103,10 +103,10 @@ def main():
     seen_hashes = set()
     doc_hash_to_raw = {}
 
-    print(f">>> Processing TSV: {args.input_tsv}")
+    print(f">>> Processing CSV: {args.input_csv}")
 
     # Open all files at once
-    with open(args.input_tsv, 'r', encoding='utf-8') as f_in, \
+    with open(args.input_csv, 'r', encoding='utf-8') as f_in, \
          open(out_corpus_path, 'w', encoding='utf-8') as f_corpus, \
          open(out_query_path, 'w', encoding='utf-8') as f_queries:
 
