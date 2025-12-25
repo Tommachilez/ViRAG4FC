@@ -104,7 +104,7 @@ def main():
     # Column configuration
     parser.add_argument("--doc_col", default="document")
     parser.add_argument("--id_col", default="id")
-    parser.add_argument("--claim_col", default="claim", help="Column name for claim in train_csv")
+    parser.add_argument("--claim_col", default="query", help="Column name for claim in train_csv")
     parser.add_argument("--map_doc_id", default="doc_id")
     parser.add_argument("--map_doc_col", default="document")
 
