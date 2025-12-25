@@ -39,9 +39,9 @@ class VietnameseProcessor:
             sys.exit(1)
 
         # 2. Init Stopwords
+        self.use_whitelist = use_whitelist
         self.stopwords = self._load_stopwords(stopwords_path)
         self.punctuation = set(string.punctuation)
-        self.use_whitelist = use_whitelist
 
     def _load_stopwords(self, path: str) -> Set[str]:
         sw = set()
