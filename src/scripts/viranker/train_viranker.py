@@ -192,7 +192,7 @@ def train_viranker(args):
         model=model,
         args=training_args,
         train_dataset=train_dataset,
-        # We don't pass 'evaluator' here because CrossEncoderTrainer expects a 
+        # We don't pass 'evaluator' here because CrossEncoderTrainer expects a
         # specific CEBinaryClassificationEvaluator type.
         # We will run our custom RankerEvaluator manually at the end.
     )
