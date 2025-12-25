@@ -14,6 +14,12 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 def sigmoid(x):
     return 1 / (1 + math.exp(-x))
 
+def sanitize_text(text):
+    """Standardizes text for robust matching (removes newlines/tabs/extra spaces)."""
+    if not text:
+        return ""
+    return " ".join(text.split()).strip()
+
 class ViRankerScorer:
     def __init__(self, model_path, device=None, batch_size=16, use_sigmoid=False):
         self.batch_size = batch_size
@@ -87,19 +93,44 @@ class ViRankerScorer:
         return max(scores) if scores else (-9999.0 if not self.use_sigmoid else 0.0)
 
 
-def load_documents(csv_path: str, content_col: str) -> dict:
+def load_doc_mapping(csv_path: str, id_col: str, doc_col: str) -> dict:
+    """Loads Canonical ID -> Text mapping."""
     docs = {}
-    print(f"Loading documents from {csv_path}...")
+    print(f"Loading document mapping from {csv_path}...")
     try:
         with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                if 'id' in row:
-                    docs[str(row['id']).strip()] = row[content_col]
+                rid = row.get(id_col)
+                txt = row.get(doc_col)
+                if rid:
+                    docs[str(rid).strip()] = txt if txt else ""
     except Exception as e:
-        print(f"Error reading document CSV: {e}")
+        print(f"Error reading doc mapping: {e}")
         sys.exit(1)
     return docs
+
+def load_query_mapping(csv_path: str, id_col: str, query_col: str) -> dict:
+    """Loads Text -> Canonical ID mapping for queries."""
+    # We need reverse lookup (Text -> ID) because mining output only has text
+    mapping = {}
+    print(f"Loading query mapping from {csv_path}...")
+    try:
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                rid = row.get(id_col)
+                txt = row.get(query_col)
+                if rid and txt:
+                    # Sanitize key for robust lookup
+                    clean_txt = sanitize_text(txt)
+                    mapping[clean_txt] = str(rid).strip()
+    except Exception as e:
+        print(f"Error reading query mapping: {e}")
+        sys.exit(1)
+
+    print(f"Loaded {len(mapping)} queries into mapping.")
+    return mapping
 
 
 def count_lines(filepath):
@@ -120,138 +151,64 @@ def atomic_save_pickle(data, filepath):
     os.replace(temp_path, filepath) # Atomic move
 
 
-def clean_text(text):
-    """Removes tabs and newlines for safe TSV writing."""
-    return text.replace('\t', ' ').replace('\n', ' ').strip()
-
-
-def ensure_mapping_consistency(mapping_path, jsonl_path, target_count):
-    """
-    Ensures the TSV mapping file exists and has exactly 'target_count' lines
-    corresponding to the pickle. Rebuilds it from JSONL if missing/short.
-    """
-    # 1. Check current state of mapping file
-    current_lines = []
-    if os.path.exists(mapping_path):
-        with open(mapping_path, 'r', encoding='utf-8') as f:
-            current_lines = f.readlines()
-
-    current_count = len(current_lines)
-
-    # CASE A: Perfect Sync
-    if current_count == target_count:
-        print(f"Mapping file check: OK ({target_count} lines).")
-        return
-
-    # CASE B: Mapping is too long (ghost entries) -> Truncate
-    if current_count > target_count:
-        print(f"Mapping file check: Too long ({current_count} > {target_count}). Truncating...")
-        with open(mapping_path, 'w', encoding='utf-8') as f:
-            f.writelines(current_lines[:target_count])
-        return
-
-    # CASE C: Mapping is missing or too short -> Reconstruct
-    # This happens if TSV was deleted or crashed before flushing
-    print(f"Mapping file check: Incomplete or Missing ({current_count} < {target_count}). RECONSTRUCTING...")
-
-    processed_so_far = 0
-    reconstructed_lines = []
-
-    # We scan the input JSONL just to rebuild the mapping
-    with open(jsonl_path, 'r', encoding='utf-8') as f:
-        for line in tqdm(f, total=target_count, desc="Rebuilding Mapping", unit="lines"):
-            if processed_so_far >= target_count:
-                break
-
-            try:
-                entry = json.loads(line)
-                query_text = entry.get('query', '')
-                candidates = entry.get('candidates', {})
-
-                if not query_text or not candidates: continue
-
-                # Format: ID \t Text
-                clean_q = clean_text(query_text)
-                reconstructed_lines.append(f"{processed_so_far}\t{clean_q}\n")
-                processed_so_far += 1
-            except:
-                continue
-
-    # Write the rebuilt file from scratch
-    with open(mapping_path, 'w', encoding='utf-8') as f:
-        f.writelines(reconstructed_lines)
-
-    print(f"Mapping file reconstructed successfully with {len(reconstructed_lines)} lines.")
-
-
 def main():
     parser = argparse.ArgumentParser(description="Calculate ViRanker scores for Distillation.")
 
     # Required Arguments
-    parser.add_argument("--csv", required=True, help="Path to CSV file containing documents.")
-    parser.add_argument("--mining_jsonl", required=True, help="Path to JSONL from pyserini_mining (contains candidates).")
+    parser.add_argument("--doc_mapping", required=True, help="CSV with columns: doc_id, document")
+    parser.add_argument("--query_mapping", required=True, help="CSV with columns: query_id, query")
+    parser.add_argument("--mining_jsonl", required=True, help="Path to JSONL from pyserini_mining.")
     parser.add_argument("--output_dir", required=True, help="Directory to save output files.")
     parser.add_argument("--model_path", default='namdp-ptit/ViRanker', help="Path to the local ViRanker checkpoint directory.")
 
     # Optional Arguments
     parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--doc_col", type=str, default="document", help="Column name for document text in CSV")
     parser.add_argument("--use_sigmoid", action="store_true", help="If set, apply sigmoid to squash logits to [0,1].")
     parser.add_argument("--maxp", action="store_true", help="Enable MaxP scoring (250w/100s). Default is FirstP.")
     parser.add_argument("--append", action="store_true", help="Resume processing by loading existing output file.")
     parser.add_argument("--save_every", type=int, default=100, help="Save checkpoint every N queries.")
+
+    # Column Names
+    parser.add_argument("--map_doc_id", default="doc_id")
+    parser.add_argument("--map_doc_col", default="document")
+    parser.add_argument("--map_query_id", default="query_id")
+    parser.add_argument("--map_query_col", default="query")
 
     args = parser.parse_args()
 
     # 1. Setup Output Directory
     os.makedirs(args.output_dir, exist_ok=True)
     score_file_path = os.path.join(args.output_dir, "scores.pkl.gz")
-    mapping_file_path = os.path.join(args.output_dir, "query_mapping.tsv")
 
     # 2. Load Resources
-    scorer = ViRankerScorer(
-        model_path=args.model_path,
-        batch_size=args.batch_size,
-        use_sigmoid=args.use_sigmoid
-    )
-    documents = load_documents(args.csv, args.doc_col)
+    scorer = ViRankerScorer(args.model_path, batch_size=args.batch_size, use_sigmoid=args.use_sigmoid)
+
+    # Load Mappings
+    doc_map = load_doc_mapping(args.doc_mapping, args.map_doc_id, args.map_doc_col)
+    query_text_to_id = load_query_mapping(args.query_mapping, args.map_query_id, args.map_query_col)
 
     # 3. Handle Resume/Append Logic
     full_scores = {}
-    already_processed_count = 0
-
     if args.append and os.path.exists(score_file_path):
         print(f"Append mode: Loading scores from {score_file_path}...")
         try:
             with gzip.open(score_file_path, 'rb') as f:
                 full_scores = pickle.load(f)
-            already_processed_count = len(full_scores)
-            print(f"Found {already_processed_count} existing scores.")
-
-            ensure_mapping_consistency(mapping_file_path, args.mining_jsonl, already_processed_count)
-
+            print(f"Found {len(full_scores)} existing queries in history.")
         except Exception as e:
             print(f"Warning: Pickle corrupted ({e}). Starting fresh.")
             full_scores = {}
-            already_processed_count = 0
-    else:
-        # If not appending or pickle missing, ensure we start fresh for TSV too
-        if os.path.exists(mapping_file_path):
-            print("Starting fresh: Overwriting existing mapping file.")
-            open(mapping_file_path, 'w').close() # Create empty file immediately
 
-    query_counter = already_processed_count
     total_lines = count_lines(args.mining_jsonl)
-
-    print(f"Starting scoring loop. Output: {args.output_dir}")
+    print(f"Starting scoring loop. Output: {score_file_path}")
 
     # Open the mapping file
     # buffering=1 means line-buffered (good for text files)
-    with open(args.mining_jsonl, 'r', encoding='utf-8') as f_in, \
-         open(mapping_file_path, 'a', encoding='utf-8', buffering=1) as f_map:
+    with open(args.mining_jsonl, 'r', encoding='utf-8') as f_in:
 
-        pbar = tqdm(total=total_lines, desc="Processing", unit="queries")
-        valid_inputs_seen = 0
+        pbar = tqdm(total=total_lines, desc="Scoring", unit="queries")
+        processed_count = 0
+        skipped_map_count = 0
 
         for line in f_in:
             try:
@@ -267,47 +224,60 @@ def main():
                 pbar.update(1)
                 continue
 
-            # Skip already processed
-            if valid_inputs_seen < already_processed_count:
-                valid_inputs_seen += 1
+            # 1. Resolve Query ID
+            clean_q = sanitize_text(query_text)
+            query_id = query_text_to_id.get(clean_q)
+
+            if not query_id:
+                # Fallback: Try exact match without sanitization if sanitized failed
+                query_id = query_text_to_id.get(query_text)
+
+            if not query_id:
+                # If we can't identify the query ID from the mapping, we can't use this row
+                skipped_map_count += 1
                 pbar.update(1)
                 continue
 
-            # --- Scoring ---
+            # 2. Check if already processed
+            if query_id in full_scores:
+                pbar.update(1)
+                continue
+
+            # 3. Score Candidates
             q_scores = {}
             for doc_id, val in candidates.items():
-                # Resolve text
-                if isinstance(val, str) and len(val) > 10:
+                doc_id_str = str(doc_id).strip()
+
+                # Priority: 1. Text in JSONL (Fastest) -> 2. Text in Doc Mapping (Canonical)
+                text_to_score = ""
+
+                # If 'val' looks like a document string, use it
+                if isinstance(val, str) and len(val) > 5:
                     text_to_score = val
                 else:
-                    text_to_score = documents.get(str(doc_id))
+                    # Otherwise look up in doc_map
+                    text_to_score = doc_map.get(doc_id_str, "")
 
                 if not text_to_score:
                     continue
 
+                # Run Inference
                 if args.maxp:
                     score = scorer.score_maxp(query_text, text_to_score)
                 else:
                     res = scorer.score_batch([[query_text, text_to_score]])
                     score = res[0]
 
-                q_scores[str(doc_id)] = float(score)
+                q_scores[doc_id_str] = float(score)
 
-            # Save Results
+            # 4. Save
             if q_scores:
-                full_scores[query_counter] = q_scores
+                full_scores[query_id] = q_scores
+                processed_count += 1
 
-                # Write to TSV immediately
-                clean_q = clean_text(query_text)
-                f_map.write(f"{query_counter}\t{clean_q}\n")
-
-                query_counter += 1
-                valid_inputs_seen += 1
-
-                # Checkpoint the pickle
-                if valid_inputs_seen % args.save_every == 0:
+                # Checkpoint
+                if processed_count % args.save_every == 0:
                     atomic_save_pickle(full_scores, score_file_path)
-                    f_map.flush() # Ensure TSV is safe on disk too
 
             pbar.update(1)
 
@@ -316,7 +286,8 @@ def main():
     # Final Save
     print(f"Saving final scores for {len(full_scores)} queries...")
     atomic_save_pickle(full_scores, score_file_path)
-    print("Done.")
+    print(f"Total Queries Scored: {processed_count}")
+    print(f"Skipped (Query not in mapping): {skipped_map_count}")
 
 if __name__ == "__main__":
     main()
