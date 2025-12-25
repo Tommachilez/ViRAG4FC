@@ -15,7 +15,7 @@ from underthesea import text_normalize
 # ==========================================
 STOPWORD_WHITELIST = {
     "không", "chẳng", "chả", "chưa", "phi", "vô", "tránh", "đừng", "chớ",
-    "và", "hoặc", "nhưng", "tuy", "nếu", "thì", "vì", "do", "bởi", "tại", "nên", 
+    "và", "hoặc", "nhưng", "tuy", "nếu", "thì", "vì", "do", "bởi", "tại", "nên",
     "rằng", "là", "của", "thuộc",
     "tại", "ở", "trong", "ngoài", "trên", "dưới", "giữa", "với", "về", "đến",
     "ai", "gì", "nào", "đâu", "khi", "mấy", "bao_nhiêu", "thế_nào", "sao",
@@ -24,7 +24,7 @@ STOPWORD_WHITELIST = {
 
 
 class VietnameseProcessor:
-    def __init__(self, vncorenlp_path: str, stopwords_path: str):
+    def __init__(self, vncorenlp_path: str, stopwords_path: str, use_whitelist: bool = False):
         # 1. Init VnCoreNLP
         if not os.path.exists(vncorenlp_path):
             raise FileNotFoundError(f"VnCoreNLP not found at {vncorenlp_path}")
@@ -41,6 +41,7 @@ class VietnameseProcessor:
         # 2. Init Stopwords
         self.stopwords = self._load_stopwords(stopwords_path)
         self.punctuation = set(string.punctuation)
+        self.use_whitelist = use_whitelist
 
     def _load_stopwords(self, path: str) -> Set[str]:
         sw = set()
@@ -50,8 +51,9 @@ class VietnameseProcessor:
                     w = line.strip().lower()
                     if w:
                         token = w.replace(' ', '_').replace('-', '_')
-                        if token not in STOPWORD_WHITELIST:
-                            sw.add(token)
+                        if self.use_whitelist and token in STOPWORD_WHITELIST:
+                            continue
+                        sw.add(token)
         return sw
 
     def process(self, text: str) -> str:
@@ -87,11 +89,12 @@ def main():
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--doc_col", default="document")
     parser.add_argument("--id_col", default="id")
+    parser.add_argument("--enable_whitelist", action="store_true")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    processor = VietnameseProcessor(args.vncorenlp_path, args.stopwords_path)
+    processor = VietnameseProcessor(args.vncorenlp_path, args.stopwords_path, use_whitelist=args.enable_whitelist)
 
     # ---------------------------------------------------------
     # PART 1: Process Documents (CSV -> JSONL for Pyserini)
