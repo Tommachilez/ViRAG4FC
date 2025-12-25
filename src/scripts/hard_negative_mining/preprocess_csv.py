@@ -73,20 +73,20 @@ class VietnameseProcessor:
         except:
             return ""
 
-def get_md5(text: str) -> str:
-    """Generates a consistent hash for deduplication."""
-    return hashlib.md5(text.strip().encode('utf-8')).hexdigest()
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_csv", required=True, help="Path to CSV file containing Query and Document")
+    parser.add_argument("--doc_mapping", required=True, help="CSV with columns: doc_id, document (Canonical Source)")
     parser.add_argument("--vncorenlp_path", required=True)
     parser.add_argument("--stopwords_path", required=True)
     parser.add_argument("--output_dir", required=True)
 
-    # Column names in the CSV
+    # Column names
     parser.add_argument("--doc_col", default="document", help="Header name for the document column")
     parser.add_argument("--query_col", default="query", help="Header name for the query column")
+    parser.add_argument("--map_doc_id", default="doc_id")
+    parser.add_argument("--map_doc_col", default="document")
     parser.add_argument("--enable_whitelist", action="store_true", help="If set, prevents specific important stopwords (negations, logic) from being filtered out.")
 
     args = parser.parse_args()
@@ -97,69 +97,82 @@ def main():
 
     out_corpus_path = os.path.join(args.output_dir, "corpus_pretokenized.jsonl")
     out_query_path = os.path.join(args.output_dir, "queries_pretokenized.jsonl")
-    out_map_path = os.path.join(args.output_dir, "dedup_docs_map.json")
+    
+    # ---------------------------
+    # 1. Process Document Mapping (Corpus & Lookup)
+    # ---------------------------
+    print(f">>> Processing Document Mapping: {args.doc_mapping}")
 
-    # Deduplication tracking
-    seen_hashes = set()
-    doc_hash_to_raw = {}
+    # Map: Text -> Canonical ID (for resolving input_csv documents)
+    canonical_text_to_id = {}
 
-    print(f">>> Processing CSV: {args.input_csv}")
+    csv.field_size_limit(sys.maxsize)
 
-    # Open all files at once
-    with open(args.input_csv, 'r', encoding='utf-8') as f_in, \
-         open(out_corpus_path, 'w', encoding='utf-8') as f_corpus, \
-         open(out_query_path, 'w', encoding='utf-8') as f_queries:
+    with open(args.doc_mapping, 'r', encoding='utf-8') as f_in, \
+         open(out_corpus_path, 'w', encoding='utf-8') as f_out:
 
-        # Use DictReader (assumes CSV has headers)
         reader = csv.DictReader(f_in)
+        for row in tqdm(reader, desc="Tokenizing Corpus"):
+            doc_id = row.get(args.map_doc_id)
+            content = row.get(args.map_doc_col, "").strip()
 
-        for row in tqdm(reader, desc="Processing rows"):
+            if not doc_id or not content:
+                continue
+
+            # Tokenize Doc
+            seg_doc = processor.process(content)
+
+            # Write to Pyserini corpus
+            obj = {"id": doc_id, "contents": seg_doc}
+            f_out.write(json.dumps(obj, ensure_ascii=False) + "\n")
+
+            # Store mapping for lookup
+            canonical_text_to_id[content] = doc_id
+
+    # ---------------------------
+    # 2. Process Input CSV (Queries)
+    # ---------------------------
+    print(f">>> Processing Input Queries: {args.input_csv}")
+
+    missing_docs_count = 0
+    resolved_count = 0
+
+    with open(args.input_csv, 'r', encoding='utf-8') as f_in, \
+         open(out_query_path, 'w', encoding='utf-8') as f_out:
+
+        reader = csv.DictReader(f_in)
+        for row in tqdm(reader, desc="Processing Queries"):
             doc_raw = row.get(args.doc_col, "").strip()
             query_raw = row.get(args.query_col, "").strip()
 
-            if not doc_raw:
+            if not doc_raw or not query_raw:
                 continue
 
-            # ---------------------------
-            # 1. Process Document
-            # ---------------------------
-            doc_hash = get_md5(doc_raw)
+            # 1. Find Canonical ID
+            canonical_id = canonical_text_to_id.get(doc_raw)
 
-            # If we haven't seen this doc text before, segment it and add to corpus
-            if doc_hash not in seen_hashes:
-                seen_hashes.add(doc_hash)
+            if not canonical_id:
+                missing_docs_count += 1
+                continue
 
-                # Tokenize Doc
-                seg_doc = processor.process(doc_raw)
+            # 2. Tokenize Query
+            seg_query = processor.process(query_raw)
+            if seg_query:
+                # Write query linked to the canonical document ID
+                query_obj = {
+                    "pos_doc_id": canonical_id,
+                    "queries": [{
+                        "query_raw": query_raw,
+                        "query_seg": seg_query
+                    }]
+                }
+                f_out.write(json.dumps(query_obj, ensure_ascii=False) + "\n")
+                resolved_count += 1
 
-                # Write to Corpus (ID = Hash)
-                obj = {"id": doc_hash, "contents": seg_doc}
-                f_corpus.write(json.dumps(obj, ensure_ascii=False) + "\n")
-
-                # Keep map for mining step
-                doc_hash_to_raw[doc_hash] = doc_raw
-
-            # ---------------------------
-            # 2. Process Query
-            # ---------------------------
-            if query_raw:
-                seg_query = processor.process(query_raw)
-                if seg_query:
-                    # Write query with link to the positive document Hash
-                    query_obj = {
-                        "pos_doc_id": doc_hash,
-                        "queries": [{
-                            "query_raw": query_raw,
-                            "query_seg": seg_query
-                        }]
-                    }
-                    f_queries.write(json.dumps(query_obj, ensure_ascii=False) + "\n")
-
-    print(f">>> Saving document map ({len(doc_hash_to_raw)} unique docs)...")
-    with open(out_map_path, 'w', encoding='utf-8') as f:
-        json.dump(doc_hash_to_raw, f, ensure_ascii=False)
-
-    print(f">>> Preprocessing complete. Files saved to {args.output_dir}")
+    print(f">>> Preprocessing complete.")
+    print(f"    Files saved to {args.output_dir}")
+    print(f"    Queries Processed: {resolved_count}")
+    print(f"    Skipped (Doc text not found in mapping): {missing_docs_count}")
 
 if __name__ == "__main__":
     main()
