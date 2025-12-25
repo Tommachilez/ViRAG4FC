@@ -15,86 +15,36 @@ except ImportError:
     print("Error: Pyserini not installed.", file=sys.stderr)
     sys.exit(1)
 
-def sanitize_text(text):
-    """Removes tabs and newlines for safe TSV writing."""
-    if not text:
-        return ""
-    return text.replace('\t', ' ').replace('\n', ' ').strip()
-
-def load_csv_maps(csv_path, id_col, doc_col):
-    """
-    Loads raw text to reconstruct final triples.
-    Returns:
-        id_to_text: Map of Original ID -> Text
-        text_to_id: Map of Text -> Original ID (for reverse lookup)
-    """
-    id_to_text = {}
-    text_to_id = {}
-
-    # Increase field size limit for large CSV fields
+def load_doc_mapping(csv_path, id_col, doc_col):
+    """Loads Canonical ID -> Text mapping."""
+    mapping = {}
     csv.field_size_limit(sys.maxsize)
-
     with open(csv_path, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
-            rid = row[id_col]
-            txt = row[doc_col]
-
-            id_to_text[rid] = txt
-
-            # If multiple IDs have the exact same text, this will keep the first one found.
-            # This is acceptable since they are duplicates.
-            if txt not in text_to_id:
-                text_to_id[txt] = rid
-
-    return id_to_text, text_to_id
-
-def save_unique_mapping(text_to_id_map, output_file_path):
-    """
-    Saves the mapping of Canonical ID -> Unique Text to a TSV file.
-    This ensures downstream scripts know exactly which text corresponds to the IDs in the JSONL.
-    """
-    output_dir = os.path.dirname(output_file_path)
-    # If output_dir is empty (current dir), leave it as is, otherwise join
-    mapping_path = os.path.join(output_dir, "document_unique_mapping.tsv") if output_dir else "document_unique_mapping.tsv"
-
-    print(f">>> Saving unique document mapping to {mapping_path}...")
-
-    try:
-        with open(mapping_path, 'w', encoding='utf-8') as f:
-            for text, rid in text_to_id_map.items():
-                clean_text = sanitize_text(text)
-                f.write(f"{rid}\t{clean_text}\n")
-        print(f">>> Mapping saved. ({len(text_to_id_map)} unique documents)")
-    except Exception as e:
-        print(f"Error saving mapping file: {e}")
+            rid = row.get(id_col)
+            txt = row.get(doc_col)
+            if rid and txt:
+                mapping[rid] = txt.strip()
+    return mapping
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--preprocessed_dir", required=True)
-    parser.add_argument("--original_doc_csv", required=True)
+    parser.add_argument("--doc_mapping", required=True, help="CSV with columns: doc_id, document")
     parser.add_argument("--output_jsonl", required=True)
     parser.add_argument("--top_k", type=int, default=50)
-    parser.add_argument("--doc_col", default="document")
-    parser.add_argument("--id_col", default="id")
+    parser.add_argument("--map_doc_id", default="doc_id")
+    parser.add_argument("--map_doc_col", default="document")
     args = parser.parse_args()
 
     corpus_path = os.path.join(args.preprocessed_dir, "corpus_pretokenized.jsonl")
     queries_path = os.path.join(args.preprocessed_dir, "queries_pretokenized.jsonl")
-    map_path = os.path.join(args.preprocessed_dir, "dedup_docs_map.json")
     index_dir = os.path.join(args.preprocessed_dir, "pyserini_index")
 
-    print(">>> Loading Deduplicated Document Map...")
-    with open(map_path, 'r', encoding='utf-8') as f:
-        # Maps Hash (Index ID) -> Raw Text
-        hash_to_text = json.load(f)
-
-    print(">>> Loading Original CSV for ID lookup...")
-    # row_id_to_text: Used to get the query's positive doc text
-    # text_to_row_id: Used to convert retrieved candidates back to original IDs
-    row_id_to_text, text_to_row_id = load_csv_maps(args.original_doc_csv, args.id_col, args.doc_col)
-
-    save_unique_mapping(text_to_row_id, args.output_jsonl)
+    print(">>> Loading Document Mapping...")
+    # Map: Canonical ID -> Text
+    id_to_text = load_doc_mapping(args.doc_mapping, args.map_doc_id, args.map_doc_col)
 
     # ---------------------------------------------------------
     # STEP 1: INDEXING (Subprocess)
@@ -127,7 +77,7 @@ def main():
     searcher = LuceneSearcher(index_dir)
     searcher.set_bm25(k1=1.2, b=0.75)
 
-    # Force WhitespaceAnalyzer to respect our segmentation
+    # Force WhitespaceAnalyzer
     try:
         JWhitespaceAnalyzer = autoclass('org.apache.lucene.analysis.core.WhitespaceAnalyzer')
         searcher.set_analyzer(JWhitespaceAnalyzer())
@@ -140,10 +90,11 @@ def main():
 
         for line in tqdm(f_in):
             data = json.loads(line)
-            pos_id = data['pos_doc_id']
+            pos_id = data['pos_doc_id'] # This is now the Canonical ID
 
-            pos_text_raw = row_id_to_text.get(pos_id)
+            pos_text_raw = id_to_text.get(pos_id)
             if not pos_text_raw:
+                # Should not happen if preprocessing was correct
                 continue
 
             for q_data in data['queries']:
@@ -158,26 +109,20 @@ def main():
                 candidates[pos_id] = pos_text_raw
 
                 for hit in hits:
-                    # hit.docid is the HASH
-                    candidate_text = hash_to_text.get(hit.docid)
+                    # hit.docid is the Canonical ID from doc_mapping
+                    candidate_id = hit.docid
+                    candidate_text = id_to_text.get(candidate_id)
 
                     if not candidate_text:
                         continue
 
-                    # Filter out exact positive text match (deduplication)
+                    # Deduplication: Don't add if text is exactly the same as positive
                     if candidate_text == pos_text_raw:
                         continue
 
-                    # RETRIEVE ORIGINAL ID
-                    # We use the text to find the original CSV ID
-                    original_doc_id = text_to_row_id.get(candidate_text)
+                    candidates[candidate_id] = candidate_text
 
-                    # Fallback: if somehow not found (unlikely), use the hash
-                    final_id = original_doc_id if original_doc_id else hit.docid
-
-                    candidates[final_id] = candidate_text
-
-                    if len(candidates) >= args.top_k + 1:  # +1 for positive
+                    if len(candidates) >= args.top_k + 1:
                         break
 
                 # Write Output
