@@ -74,8 +74,11 @@ class ViRankerScorer:
         """
         tokens = doc_text.split()
 
+        # Default fallback values
+        default_score = -9999.0 if not self.use_sigmoid else 0.0
+
         if not tokens:
-            return -9999.0 if not self.use_sigmoid else 0.0
+            return default_score, ""
 
         if len(tokens) <= window_size:
             windows = [doc_text]
@@ -90,7 +93,15 @@ class ViRankerScorer:
         pairs = [[query, w] for w in windows]
         scores = self.score_batch(pairs)
 
-        return max(scores) if scores else (-9999.0 if not self.use_sigmoid else 0.0)
+        if not scores:
+            return default_score, ""
+
+        # Find the index of the highest score
+        max_val = max(scores)
+        max_idx = scores.index(max_val)
+        best_chunk = windows[max_idx]
+
+        return max_val, best_chunk
 
 
 def load_doc_mapping(csv_path: str, id_col: str, doc_col: str) -> dict:
@@ -179,6 +190,7 @@ def main():
     # 1. Setup Output Directory
     os.makedirs(args.output_dir, exist_ok=True)
     score_file_path = os.path.join(args.output_dir, "scores.pkl.gz")
+    maxp_csv_path = os.path.join(args.output_dir, "best_passage.csv")
 
     # 2. Load Resources
     scorer = ViRankerScorer(args.model_path, batch_size=args.batch_size, use_sigmoid=args.use_sigmoid)
@@ -199,11 +211,26 @@ def main():
             print(f"Warning: Pickle corrupted ({e}). Starting fresh.")
             full_scores = {}
 
+    # Initialize CSV variables
+    maxp_csv_file = None
+    csv_writer = None
+
+    # ONLY initialize the CSV file if maxp is enabled
+    if args.maxp:
+        file_mode = 'a' if (args.append and os.path.exists(maxp_csv_path)) else 'w'
+        maxp_csv_file = open(maxp_csv_path, file_mode, newline='', encoding='utf-8')
+        csv_writer = csv.writer(maxp_csv_file)
+
+        # Write header only if we are in 'write' mode (new file)
+        if file_mode == 'w':
+            csv_writer.writerow(["query_id", "doc_id", "text"])
+
+        print(f"MaxP Enabled: Best passages will be saved to {maxp_csv_path}")
+
     total_lines = count_lines(args.mining_jsonl)
     print(f"Starting scoring loop. Output: {score_file_path}")
 
     # Open the mapping file
-    # buffering=1 means line-buffered (good for text files)
     with open(args.mining_jsonl, 'r', encoding='utf-8') as f_in:
 
         pbar = tqdm(total=total_lines, desc="Scoring", unit="queries")
@@ -248,7 +275,7 @@ def main():
             for doc_id, val in candidates.items():
                 doc_id_str = str(doc_id).strip()
 
-                # Priority: 1. Text in JSONL (Fastest) -> 2. Text in Doc Mapping (Canonical)
+                # Get text source
                 text_to_score = ""
 
                 # If 'val' looks like a document string, use it
@@ -263,12 +290,19 @@ def main():
 
                 # Run Inference
                 if args.maxp:
-                    score = scorer.score_maxp(query_text, text_to_score)
+                    # Capture BOTH score and best text chunk
+                    score, best_chunk = scorer.score_maxp(query_text, text_to_score)
+
+                    # Store float in dictionary (Backwards compatible)
+                    q_scores[doc_id_str] = float(score)
+
+                    # Write Text to CSV immediately
+                    if csv_writer:
+                        csv_writer.writerow([query_id, doc_id_str, best_chunk])
                 else:
                     res = scorer.score_batch([[query_text, text_to_score]])
                     score = res[0]
-
-                q_scores[doc_id_str] = float(score)
+                    q_scores[doc_id_str] = float(score)
 
             # 4. Save
             if q_scores:
@@ -278,6 +312,8 @@ def main():
                 # Checkpoint
                 if processed_count % args.save_every == 0:
                     atomic_save_pickle(full_scores, score_file_path)
+                    if maxp_csv_file:
+                        maxp_csv_file.flush() # Ensure CSV data is written to disk
 
             pbar.update(1)
 
@@ -286,6 +322,10 @@ def main():
     # Final Save
     print(f"Saving final scores for {len(full_scores)} queries...")
     atomic_save_pickle(full_scores, score_file_path)
+
+    if maxp_csv_file:
+        maxp_csv_file.close()
+
     print(f"Total Queries Scored: {processed_count}")
     print(f"Skipped (Query not in mapping): {skipped_map_count}")
 
