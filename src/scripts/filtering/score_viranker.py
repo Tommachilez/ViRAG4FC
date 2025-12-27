@@ -94,14 +94,14 @@ class ViRankerScorer:
         scores = self.score_batch(pairs)
 
         if not scores:
-            return default_score, ""
+            return default_score, "", -1
 
         # Find the index of the highest score
         max_val = max(scores)
         max_idx = scores.index(max_val)
         best_chunk = windows[max_idx]
 
-        return max_val, best_chunk
+        return max_val, best_chunk, max_idx
 
 
 def load_doc_mapping(csv_path: str, id_col: str, doc_col: str) -> dict:
@@ -223,7 +223,7 @@ def main():
 
         # Write header only if we are in 'write' mode (new file)
         if file_mode == 'w':
-            csv_writer.writerow(["query_id", "doc_id", "text"])
+            csv_writer.writerow(["query_id", "passage_id", "score", "passage_text"])
 
         print(f"MaxP Enabled: Best passages will be saved to {maxp_csv_path}")
 
@@ -291,14 +291,18 @@ def main():
                 # Run Inference
                 if args.maxp:
                     # Capture BOTH score and best text chunk
-                    score, best_chunk = scorer.score_maxp(query_text, text_to_score)
+                    score, best_chunk, best_idx = scorer.score_maxp(query_text, text_to_score)
 
-                    # Store float in dictionary (Backwards compatible)
-                    q_scores[doc_id_str] = float(score)
+                    if best_idx != -1:
+                        # KEY CHANGE: Construct the ID as "doc_id#index"
+                        # This MUST match the output of create_training_triples_with_maxp.py
+                        passage_id = f"{doc_id_str}#{best_idx}"
 
-                    # Write Text to CSV immediately
-                    if csv_writer:
-                        csv_writer.writerow([query_id, doc_id_str, best_chunk])
+                        # Save to scores dict with the specific PASSAGE ID
+                        q_scores[passage_id] = float(score)
+
+                        # Log to CSV
+                        csv_writer.writerow([query_id, passage_id, float(score), best_chunk])
                 else:
                     res = scorer.score_batch([[query_text, text_to_score]])
                     score = res[0]
