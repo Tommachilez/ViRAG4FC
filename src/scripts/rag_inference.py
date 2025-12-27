@@ -120,7 +120,7 @@ def main():
         print(f"{'='*60}")
 
         # Generate Answer
-        answer = reader.generate_answer(query_text, llm_input_docs)
+        answer = reader.generate_answer(qid, query_text, llm_input_docs)
 
         print(f"ANSWER:\n{answer}\n")
 
