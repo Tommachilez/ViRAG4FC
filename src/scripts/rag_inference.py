@@ -3,7 +3,7 @@ import argparse
 import os
 from collections import defaultdict
 from tqdm import tqdm
-from reader_llm import ReaderLLM
+from .reader_llm import ReaderLLM
 
 def load_document_mapping(doc_mapping_path):
     """Loads the map of DocID -> Document Text."""
