@@ -87,20 +87,30 @@ def save_jsonl(data, output_path):
 
 def parse_llm_output(output_str):
     """
-    Attempts to parse the string output from LLM into a dictionary.
-    Handles potential format issues (e.g., Python dict string vs JSON).
+    Robustly parses LLM output into a dictionary.
     """
+    # 1. If it's already a dict, return it immediately (Fixes your TypeError)
+    if isinstance(output_str, dict):
+        return output_str
+
+    # 2. If it's a string, try parsing as standard JSON
     try:
-        # First, try standard JSON
         return json.loads(output_str)
-    except json.JSONDecodeError:
-        try:
-            # Fallback: Try parsing python dictionary string (common in some LLM outputs)
-            # e.g. "{'key': 'value'}"
-            return ast.literal_eval(output_str)
-        except Exception:
-            # Return raw string if parsing fails
-            return {"raw_output": output_str, "error": "parsing_failed"}
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # 3. Fallback: Try parsing as a Python dictionary string (e.g., "{'key': 'val'}")
+    try:
+        return ast.literal_eval(output_str)
+    except (ValueError, SyntaxError):
+        pass
+
+    # 4. If all else fails, return an error dict with the raw text
+    return {
+        "qid": None,
+        "verdict": "Error",
+        "explanation": f"Failed to parse output: {str(output_str)[:100]}..."
+    }
 
 def calculate_metrics(predictions, ground_truth_map):
     """
