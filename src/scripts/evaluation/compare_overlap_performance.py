@@ -68,7 +68,7 @@ def load_group_qids(jsonl_path):
         print(f"Warning: Group file {jsonl_path} not found.")
     return qids
 
-def calculate_metrics(name, qids_in_group, all_preds, all_labels):
+def calculate_metrics(name, qids_in_group, all_preds, all_labels, method='macro'):
     """Calculates metrics for a specific subset of QIDs."""
     y_true = []
     y_pred = []
@@ -84,7 +84,7 @@ def calculate_metrics(name, qids_in_group, all_preds, all_labels):
 
     accuracy = accuracy_score(y_true, y_pred)
     precision, recall, f1, _ = precision_recall_fscore_support(
-        y_true, y_pred, average='weighted', zero_division=0
+        y_true, y_pred, average=method, zero_division=0
     )
 
     return {
@@ -105,6 +105,7 @@ def main():
     parser.add_argument("--query_mapping", required=True, help="Path to test_query_mapping.csv")
     parser.add_argument("--high_group", required=True, help="Path to high_overlap_queries.jsonl")
     parser.add_argument("--low_group", required=True, help="Path to low_overlap_queries.jsonl")
+    parser.add_argument("--average_method", choices=['macro', 'micro', 'weighted'], default='macro', help="Averaging method for metrics calculation")
 
     args = parser.parse_args()
 
@@ -121,8 +122,9 @@ def main():
     print(f"Found {len(low_qids)} queries in Low Group.")
 
     # 3. Calculate Metrics
-    high_metrics = calculate_metrics("High Overlap", high_qids, predictions, ground_truth)
-    low_metrics = calculate_metrics("Low Overlap", low_qids, predictions, ground_truth)
+    average_method = args.average_method
+    high_metrics = calculate_metrics("High Overlap", high_qids, predictions, ground_truth, method=average_method)
+    low_metrics = calculate_metrics("Low Overlap", low_qids, predictions, ground_truth, method=average_method)
 
     # 4. Print Comparison Table
     print("\n" + "="*65)
