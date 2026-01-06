@@ -90,8 +90,8 @@ class LexicalCalculator:
                 # Ensure format matches tokenizer output (underscores for spaces)
                 token_style = word.replace(' ', '_').replace('-', '_')
 
-                if token_style in STOPWORD_WHITELIST:
-                    continue
+                # if token_style in STOPWORD_WHITELIST:
+                #     continue
                 final_stopwords.add(token_style)
 
         print(f"Loaded {len(final_stopwords)} stopwords.")
