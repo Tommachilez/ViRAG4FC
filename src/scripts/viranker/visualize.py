@@ -25,7 +25,7 @@ def parse_args():
     parser.add_argument("--trained_model", type=str, default=DEFAULT_TRAINED_MODEL, help="Path to the trained checkpoint.")
 
     # Data & Output
-    parser.add_argument("--jsonl", type=str, default=DEFAULT_DATA_FILE, help="Path to the training data JSONL file.")
+    parser.add_argument("--jsonl", type=str, default=DEFAULT_DATA_FILE, help="Path to the dev data JSONL file.")
     parser.add_argument("--output_image", type=str, default=DEFAULT_OUTPUT_IMG, help="Filename for the comparison chart.")
 
     # MaxP / Evaluation Settings
