@@ -133,7 +133,7 @@ def main():
     print(f">>> Searching (top_k={args.top_k})...")
 
     cumulative_metrics = collections.defaultdict(list)
-    k_list = [10, 50, args.top_k]
+    k_list = [3, 10, 50, args.top_k]
 
     for q_id, q_text in tqdm(queries.items()):
         if q_id not in qrels:
