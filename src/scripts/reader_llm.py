@@ -15,7 +15,7 @@ class ReaderLLM:
 
         genai.configure(api_key=api_key)
         self.model_name = model_name
-        
+
         # Configure model for JSON output
         self.model = genai.GenerativeModel(
             model_name=model_name,
@@ -26,6 +26,7 @@ class ReaderLLM:
         )
 
         # System prompt enforcing the "Judge" persona and JSON schema
+        # UPDATE: Modified to request Vietnamese explanation but English verdict labels
         self.system_instruction = """
             You are a strict Verification Assistant for a Fact-Checking system.
             Your goal is to verify the user's claim using ONLY the provided context snippets.
@@ -33,11 +34,12 @@ class ReaderLLM:
             Output strictly in JSON format with the following keys:
             1. "qid": The exact query ID provided in the prompt.
             2. "query": The original claim/query text.
-            3. "verdict": One of the following exact strings: "Supported", "Refuted", "Not Enough Information".
-            4. "explanation": A detailed reasoning.
+            3. "verdict": One of the following exact strings (MUST BE IN ENGLISH): "Supported", "Refuted", "Not Enough Information".
+            4. "explanation": A detailed reasoning written in VIETNAMESE.
+               - Language: The explanation must be in Vietnamese.
                - Evidence-Based Only: Do not use outside knowledge. If the answer is not in the context, set verdict to "Not Enough Information".
                - Citation Required: Every sentence in the explanation must be supported by a citation in the format [Doc ID]. 
-                 (Example: "VinFast broke ground on July 28 [289].")
+                 (Example: "VinFast đã khởi công nhà máy vào ngày 28 tháng 7 [289].")
                - Handle Contradictions: If documents contradict, explain both sides.
         """
 
