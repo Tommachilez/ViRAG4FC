@@ -3,6 +3,6 @@ ref_resources/
 .venv/
 tests/
 data/
-notebooks/
+google_extractor/
 __pycache__/
 .pytest_cache/
