@@ -6,7 +6,7 @@ This directory contains Jupyter notebooks used for the development, training, an
 
 The notebooks are categorized into three main sub-directories, plus root-level demo scripts:
 
-### 1. Data Handling (`/Data Handling`)
+### 1. Data Handling
 
 These notebooks focus on Exploratory Data Analysis (EDA) and the preparation of Vietnamese datasets for training.
 
@@ -16,7 +16,7 @@ These notebooks focus on Exploratory Data Analysis (EDA) and the preparation of 
 
 - **Expansion Inspection**: `inspect_expansion.ipynb` allows for the analysis of semantic term expansion and weighting.
 
-### 2. Main Pipeline (`/Main Pipeline`)
+### 2. Main Pipeline
 
 Contains the core logic for training models and executing the retrieval pipeline.
 
@@ -26,7 +26,7 @@ Contains the core logic for training models and executing the retrieval pipeline
 
 - **Scoring**: Notebooks like `score_viranker_maxp.ipynb` generate relevance scores for the retrieval candidates.
 
-### 3. Evaluation (`/Evaluation`)
+### 3. Evaluation
 
 Focused on benchmarking the performance of individual components and the hybrid system.
 
@@ -56,12 +56,12 @@ Most notebooks are designed to run in **Google Colaboratory** and include cells 
 
 To reproduce the system results, it is recommended to follow this sequence:
 
-1. **EDA & Pre-processing**: Run notebooks in `Data Handling` to understand and segment the corpus.
+1. **EDA & Pre-processing**: Run notebooks in `/Data Handling` to understand and segment the corpus.
 
-2. **Negative Mining**: Execute `filter_and_mine_hard_negatives.ipynb` to prepare the training environment.
+2. **Negative Mining**: Execute `/Main Pipeline/filter_and_mine_hard_negatives.ipynb` to prepare the training environment.
 
-3. **Model Training**: Use the training scripts in `Main Pipeline` to fine-tune the semantic retriever.
+3. **Model Training**: Use the training scripts in `/Main Pipeline` to fine-tune the semantic retriever.
 
-4. **Evaluation**: Benchmark the trained models using the notebooks in `Evaluation`.
+4. **Evaluation**: Benchmark the trained models using the notebooks in `/Evaluation`.
 
 5. **Inference**: Run `demo_final.ipynb` to test the end-to-end RAG system with live claims.
