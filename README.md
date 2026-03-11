@@ -4,8 +4,6 @@ ViRAG4FC is an advanced, two-stage Information Retrieval (IR) and Retrieval-Augm
 
 The system utilizes a **Hybrid Retrieval** strategy—integrating lexical precision (BM25) with semantic learned indexing (DeeperImpact)—and leverages **Gemini 2.5 Flash** for final evidence-based reasoning. In this architecture, **ViRanker** (an XLM-RoBERTa based model) serves as the fundamental base model for the DeeperImpact retrieval stage.
 
----
-
 ## 🏗️ System Architecture
 
 The pipeline is designed to ensure that fact-checking verdicts are grounded in highly relevant, retrieved evidence through a unified retrieval-verification approach.
@@ -34,8 +32,6 @@ A weighted alpha combines the scores from lexical (**BM25**) and semantic (**Dee
   <img src="src/others/reader.png" alt="Reader Architecture" width="400">
 </p>
 
----
-
 ## 📂 Repository Structure
 
 The core logic resides in the `src` directory:
@@ -53,8 +49,6 @@ src/
 └── others/                 # Static assets and diagrams
 ```
 
----
-
 ## 🔄 Main Pipeline Workflow
 
 The project's end-to-end workflow is documented in `src/notebooks/Main Pipeline/`. Follow these steps to reproduce or extend the system:
@@ -67,8 +61,6 @@ The project's end-to-end workflow is documented in `src/notebooks/Main Pipeline/
 
 4. [**Run Hybrid Inference**](src/notebooks/Main%20Pipeline/run_hybrid_with_reader_llm.ipynb): Executes the full inference pipeline, merging retrieval results for final Gemini-based verification.
 
----
-
 ## 🚀 Quickstart
 
 ### Prerequisites
@@ -79,7 +71,7 @@ The project's end-to-end workflow is documented in `src/notebooks/Main Pipeline/
 ### Installation
 ```bash
 git clone https://github.com/tommachilez/virag4fc.git
-cd ViRAG4FC
+cd virag4fc
 pip install -r requirements.txt
 ```
 
@@ -97,8 +89,6 @@ python -m src.scripts.rag_inference \
     --top_k 3
 ```
 
----
-
 ## 📊 Benchmarks
 
 We unified three Vietnamese datasets (**ViFactCheck**, **ViWikiFC**, and **ViNumFCR**) into a comprehensive 34,811-sample benchmark.
@@ -108,7 +98,13 @@ We unified three Vietnamese datasets (**ViFactCheck**, **ViWikiFC**, and **ViNum
 | DeeperImpact + Gemini | 69.73% | 0.69 |
 | **Hybrid + Gemini (Ours)** | **76.62%** | **0.77** |
 
----
+## 📚 Datasets Used
+
+This project utilizes the following benchmark datasets for Vietnamese fact-checking:
+
+1. **ViFactCheck**: Hoa, Tran Thai, Tran Quang Duy, Khanh Quoc Tran, and Kiet Van Nguyen. "ViFactCheck: A New Benchmark Dataset and Methods for Multi-domain News Fact-Checking in Vietnamese." In Proceedings of the AAAI Conference on Artificial Intelligence, vol. 39, no. 1, pp. 308-316. 2025.
+2. **ViWikiFC**: Le, Hung Tuan, Long Truong To, Manh Trong Nguyen, and Kiet Van Nguyen. "Viwikifc: Fact-checking for Vietnamese Wikipedia-based textual knowledge source." arXiv preprint arXiv:2405.07615 (2024).
+3. **ViNumFCR**: Luong, Nhi Ngoc Phuong, Anh Thi Lan Le, Tin Van Huynh, Kiet Van Nguyen, and Ngan Nguyen. "ViNumFCR: A Novel Vietnamese Benchmark for Numerical Reasoning Fact Checking on Social Media News." In Proceedings of the 18th International Natural Language Generation Conference, pp. 134-147. 2025.
 
 ## 📄 License
 This project is licensed under the MIT License. See the `LICENSE` file for details.
